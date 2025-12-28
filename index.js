@@ -8,7 +8,6 @@ app.use(express.json());
 
 let teams = [];
 
-// Fetch CSV data
 async function fetchTeams() {
   try {
     const res = await fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vRHJPShab7BlRDTQU_HIf0mQnGGqtuRh1YKsV9Emtp3qYMB-it3uuKCWijtsy7t0tT6TjHGtN_FBkr9/pub?gid=0&single=true&output=csv');
@@ -23,64 +22,71 @@ async function fetchTeams() {
     const dataRows = records.slice(1);
 
     teams = dataRows.map(cols => {
-      const pokemon = [
-        cols[35], cols[36], cols[37], cols[38], cols[39], cols[40]
-      ].filter(p => p && p.trim() && p.toLowerCase() !== 'unironicpanda');
+      // Column Indices:
+      // 0: Team ID
+      // 1: Description
+      // 3: Player (Full Name)
+      // 5, 8, 11, 14, 17, 20: Items
+      // 24: Pokepaste
+      // 29: Date Shared
+      // 30: Tournament / Event
+      // 35-40: Pokemon Names
+      
+      const itemIndices = [5, 8, 11, 14, 17, 20];
+      const items = itemIndices.map(idx => cols[idx] || 'None');
+      const pokemonNames = cols.slice(35, 41).map(p => p.trim());
+
+      const teamPokemon = pokemonNames.map((name, i) => ({
+        name: name,
+        item: items[i] || 'None'
+      })).filter(p => p.name && p.name.toLowerCase() !== 'unironicpanda');
 
       const dateStr = cols[29] || '';
-      let dateObj = new Date(0);
+      let dateValue = 0;
       if (dateStr) {
         const parsed = new Date(dateStr);
         if (!isNaN(parsed.getTime())) {
-          dateObj = parsed;
+          dateValue = parsed.getTime();
         }
       }
 
       return {
-        id: cols[0],
+        teamId: cols[0],
         description: cols[1],
         player: cols[3],
-        pokemon: pokemon,
+        pokemon: teamPokemon,
         pokepaste: cols[24],
         date: dateStr,
-        dateValue: dateObj.getTime(),
-        event: cols[30],
-        rank: cols[31],
-        format: 'VGC'
+        dateValue,
+        event: cols[30]
       };
-    }).filter(t => t.player || t.pokemon.length > 0);
+    }).filter(t => t && (t.player || t.pokemon.length > 0));
 
     console.log(`Loaded ${teams.length} teams`);
   } catch (e) { 
-    console.error('CSV fetch error:', e); 
+    console.error('Data fetch error:', e); 
   }
 }
 fetchTeams();
 
 const TOOLS = [{
   name: 'search_teams',
-  description: 'Search VGC teams by Pokemon, player, event, or format (Reg A-J). Results are sorted by date.',
+  description: 'Search VGC teams by Pokemon, item, player, event, or format (Reg A-J). No personal data required.',
   inputSchema: { 
     type: 'object', 
     properties: { 
-      query: { type: 'string', description: 'Search query - Pokemon name, player, event, or regulation' },
-      limit: { type: 'integer', description: 'Number of results to return (default 25, max 100)', minimum: 1, maximum: 100 },
-      sort: { type: 'string', description: 'Sort order: "recent" (default) or "oldest"', enum: ['recent', 'oldest'] }
+      query: { type: 'string', description: 'Search query - Pokemon name, item, player, event, or regulation' },
+      limit: { type: 'integer', description: 'Number of results (default 25, max 100)', minimum: 1, maximum: 100 },
+      sort: { type: 'string', enum: ['recent', 'oldest'], description: 'Sort by date' }
     }, 
     required: ['query']
   },
-  annotations: {
-    requiresUserData: false
-  }
+  annotations: { requiresUserData: false }
 }];
 
 function handleMethod(method, params) {
   if (method === 'initialize') {
-    return { 
-      protocolVersion: '2024-11-05', 
-      capabilities: { tools: {} }, 
-      serverInfo: { name: 'vgc-team-finder', version: '1.0.0' } 
-    };
+    return { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'vgc-team-finder', version: '1.0.0' } };
   }
   if (method === 'tools/list') {
     return { tools: TOOLS };
@@ -89,10 +95,18 @@ function handleMethod(method, params) {
     const q = (params.arguments?.query || '').toLowerCase();
     const limit = Math.min(params.arguments?.limit || 25, 100);
     const sort = params.arguments?.sort || 'recent';
+    const queryParts = q.split(' ').filter(p => p.length > 0);
 
-    let results = teams.filter(t => 
-      [t.player, t.event, t.description, ...t.pokemon].join(' ').toLowerCase().includes(q)
-    );
+    const results = teams.filter(t => {
+      const searchStr = [
+        t.player,
+        t.event,
+        t.description,
+        ...t.pokemon.map(p => p.name),
+        ...t.pokemon.map(p => p.item)
+      ].join(' ').toLowerCase();
+      return queryParts.every(part => searchStr.includes(part));
+    });
 
     if (sort === 'oldest') {
       results.sort((a, b) => a.dateValue - b.dateValue);
@@ -100,19 +114,12 @@ function handleMethod(method, params) {
       results.sort((a, b) => b.dateValue - a.dateValue);
     }
 
-    const total = results.length;
     const finalTeams = results.slice(0, limit);
-
     return { 
-      content: [{ 
-        type: 'text', 
-        text: JSON.stringify({
-          total,
-          showing: finalTeams.length,
-          sortedBy: sort,
-          teams: finalTeams
-        }, null, 2) 
-      }] 
+      total: results.length,
+      showing: finalTeams.length,
+      sortedBy: sort,
+      teams: finalTeams
     };
   }
   return { error: { code: -32601, message: 'Method not found' } };
@@ -122,7 +129,6 @@ app.get('/sse', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
   res.flushHeaders();
   res.write(':ok\n\n');
   const ping = setInterval(() => res.write(':ping\n\n'), 15000);
