@@ -12,11 +12,35 @@ async function fetchTeams() {
   try {
     const res = await fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vRHJPShab7BlRDTQU_HIf0mQnGGqtuRh1YKsV9Emtp3qYMB-it3uuKCWijtsy7t0tT6TjHGtN_FBkr9/pub?gid=0&single=true&output=csv');
     const text = await res.text();
-    const rows = text.split('\n').slice(1);
-    teams = rows.map(row => {
+    const rows = text.split('\n');
+    const headers = rows[0].split(',');
+    
+    // Find column indices
+    const playerIdx = headers.findIndex(h => h.toLowerCase().includes('full name'));
+    const descriptionIdx = headers.findIndex(h => h.toLowerCase().includes('team description'));
+    const pokepasteIdx = headers.findIndex(h => h.toLowerCase().includes('pokepaste'));
+    const dateIdx = headers.findIndex(h => h.toLowerCase().includes('date shared'));
+    const eventIdx = headers.findIndex(h => h.toLowerCase().includes('tournament / event'));
+    
+    // Pokemon names are usually at the end under "Pokemon Text for Copypasta"
+    // In this specific CSV, they seem to be in the last 6 columns
+    const pokemonStartIdx = headers.length - 6;
+
+    teams = rows.slice(1).map(row => {
       const cols = row.split(',');
-      return { player: cols[0], event: cols[1], pokemon: cols.slice(2, 8), pokepaste: cols[8], format: cols[9] };
-    }).filter(t => t.player);
+      if (cols.length < 5) return null;
+
+      return {
+        player: cols[playerIdx] || 'Unknown',
+        description: cols[descriptionIdx] || '',
+        event: cols[eventIdx] || 'Ladder/Social',
+        date: cols[dateIdx] || '',
+        pokemon: cols.slice(pokemonStartIdx, pokemonStartIdx + 6).filter(p => p && p.trim()),
+        pokepaste: cols[pokepasteIdx] || '',
+        format: 'VGC' // Default if not clearly marked in a single column
+      };
+    }).filter(t => t && (t.player !== 'Unknown' || t.pokemon.length > 0));
+    
     console.log(`Loaded ${teams.length} teams`);
   } catch (e) { console.error('CSV fetch error:', e); }
 }
@@ -24,7 +48,7 @@ fetchTeams();
 
 const TOOLS = [{
   name: 'search_teams',
-  description: 'Search VGC teams by Pokemon, player, event, or format (Reg A-J)',
+  description: 'Search VGC teams by Pokemon, player, event, or description',
   inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }
 }];
 
@@ -38,7 +62,7 @@ function handleMethod(method, params) {
   if (method === 'tools/call' && params?.name === 'search_teams') {
     const q = (params.arguments?.query || '').toLowerCase();
     const results = teams.filter(t => 
-      [t.player, t.event, t.format, ...t.pokemon].join(' ').toLowerCase().includes(q)
+      [t.player, t.event, t.description, ...t.pokemon].join(' ').toLowerCase().includes(q)
     ).slice(0, 10);
     return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
   }
