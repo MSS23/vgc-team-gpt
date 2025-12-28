@@ -3,6 +3,8 @@ const axios = require('axios');
 const { parse } = require('csv-parse/sync');
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRHJPShab7BlRDTQU_HIf0mQnGGqtuRh1YKsV9Emtp3qYMB-it3uuKCWijtsy7t0tT6TjHGtN_FBkr9/pub?gid=0&single=true&output=csv';
@@ -29,7 +31,6 @@ function getPokemonList(team) {
     const name = team[`Pokemon ${i}`] || team[`Pkmn ${i}`] || team[`pkmn${i}`];
     if (name) pkmn.push(name.trim());
   }
-  // Fallback: search keys for "Pokemon" or "Pkmn"
   if (pkmn.length === 0) {
     Object.keys(team).forEach(key => {
       if (key.toLowerCase().includes('pokemon') || key.toLowerCase().includes('pkmn')) {
@@ -40,22 +41,20 @@ function getPokemonList(team) {
   return [...new Set(pkmn)];
 }
 
-// SSE Endpoint
+// Root route
+app.get('/', (req, res) => {
+  res.send('VGC Team Finder API is running');
+});
+
+// SSE endpoint for ChatGPT
 app.get('/sse', (req, res) => {
-  console.log('SSE connection requested');
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
-
-  const pingInterval = setInterval(() => {
-    res.write(': keepalive\n\n');
-  }, 30000);
-
-  req.on('close', () => {
-    console.log('SSE connection closed');
-    clearInterval(pingInterval);
-  });
+  
+  const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
+  req.on('close', () => clearInterval(keepAlive));
 });
 
 // MCP Endpoint
@@ -212,21 +211,15 @@ app.post('/mcp', (req, res) => {
     }
 
     if (name === 'get_damage_calc') {
-      // Simple heuristic damage calc for VGC
-      // Standard: 100% / (approx 2-3 hits)
-      // Spread reduction: 0.75
       const spreadMoves = ['earthquake', 'rock slide', 'dazzling gleam', 'make it rain', 'glacial lance', 'astral barrrage', 'expanding force', 'heat wave', 'muddy water', 'snarl', 'icy wind', 'electroweb'];
       const isSpread = spreadMoves.includes(args.move.toLowerCase());
       const baseMin = 35;
       const baseMax = 42;
       const multiplier = isSpread ? 0.75 : 1.0;
-      
       const low = (baseMin * multiplier).toFixed(1);
       const high = (baseMax * multiplier).toFixed(1);
-      
       const response = `${args.attacker} ${args.move} vs. ${args.defender}: ${low}% - ${high}%\n` +
                        `Possible ${Math.ceil(100/high)}-${Math.ceil(100/low)}HKO`;
-      
       return res.json({ content: [{ type: 'text', text: response }] });
     }
 
@@ -235,19 +228,10 @@ app.post('/mcp', (req, res) => {
         (t.Player || t.player || "").toLowerCase() === args.player.toLowerCase()
       );
       if (!team) return res.json({ content: [{ type: 'text', text: "Player not found" }] });
-      
       const pkmns = getPokemonList(team);
       let exportText = "";
       pkmns.forEach(p => {
-        exportText += `${p} @ Sitrus Berry\n`;
-        exportText += `Ability: Pressure\n`;
-        exportText += `Level: 50\n`;
-        exportText += `EVs: 252 HP / 252 SpA / 4 SpD\n`;
-        exportText += `Modest Nature\n`;
-        exportText += `- Protect\n`;
-        exportText += `- Tera Blast\n`;
-        exportText += `- Substitute\n`;
-        exportText += `- Helping Hand\n\n`;
+        exportText += `${p} @ Sitrus Berry\nAbility: Pressure\nLevel: 50\nEVs: 252 HP / 252 SpA / 4 SpD\nModest Nature\n- Protect\n- Tera Blast\n- Substitute\n- Helping Hand\n\n`;
       });
       return res.json({ content: [{ type: 'text', text: exportText }] });
     }
@@ -256,8 +240,7 @@ app.post('/mcp', (req, res) => {
   res.status(404).json({ error: 'Method not found' });
 });
 
-const PORT = 3000;
 app.listen(PORT, '0.0.0.0', async () => {
   await fetchTeams();
-  console.log(`MCP server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
