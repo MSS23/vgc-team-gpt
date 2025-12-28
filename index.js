@@ -48,8 +48,17 @@ fetchTeams();
 
 const TOOLS = [{
   name: 'search_teams',
-  description: 'Search VGC teams by Pokemon, player, event, or description',
-  inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }
+  description: 'Search VGC teams by Pokemon, player, event, or format (Reg A-J). No personal data required.',
+  inputSchema: { 
+    type: 'object', 
+    properties: { 
+      query: { type: 'string', description: 'Search query - Pokemon name, player, event, or regulation' }
+    }, 
+    required: ['query']
+  },
+  annotations: {
+    requiresUserData: false
+  }
 }];
 
 function handleMethod(method, params) {
