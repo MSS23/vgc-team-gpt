@@ -1,0 +1,50 @@
+Add these 5 new tools to the MCP server. Remember all battles are VGC Doubles format.
+
+1. **get_pokemon_usage**
+   - Analyzes all teams and returns Pokemon usage statistics
+   - Parameter: format (optional string) - filter by regulation (e.g., "Reg J")
+   - Returns: List of Pokemon with usage count and percentage, sorted by most used
+   - Example response: [{ pokemon: "Flutter Mane", count: 89, percentage: "16.7%" }]
+
+2. **random_team**
+   - Returns a random team from the database for inspiration
+   - Parameter: format (optional string) - filter by regulation
+   - Returns: Single random team with player, event, pokemon, pokepaste link
+
+3. **filter_teams**
+   - Advanced team filtering
+   - Parameters:
+     - format (optional string): Regulation like "Reg J", "Reg H"
+     - must_have (optional array): Pokemon that MUST be on the team
+     - must_not_have (optional array): Pokemon to EXCLUDE
+     - event (optional string): Tournament name filter
+   - Example: must_have: ["Miraidon"], must_not_have: ["Flutter Mane"], format: "Reg J"
+   - Returns: Filtered list of teams
+
+4. **get_damage_calc**
+   - Calculate damage between two Pokemon in VGC Doubles format
+   - Parameters:
+     - attacker (string): Attacking Pokemon name
+     - defender (string): Defending Pokemon name
+     - move (string): Move name
+   - Use standard VGC spreads (Level 50, common EV spreads)
+   - Account for spread move damage reduction (0.75x) for moves like Earthquake, Rock Slide
+   - Returns: Damage range as percentage, possible KO info (OHKO, 2HKO, etc.)
+
+5. **export_team**
+   - Export a team to Pokemon Showdown paste format
+   - Parameter: player (string) - Player name to find their team
+   - Returns: Showdown-compatible text format like:
+     Pokemon @ Item
+     Ability: AbilityName
+     Level: 50
+     EVs: 252 Atk / 252 Spe / 4 HP
+     Nature
+     - Move 1
+     - Move 2
+     - Move 3
+     - Move 4
+
+For export_team, if full details aren't in the CSV, generate competitive default sets for each Pokemon (common VGC items, abilities, moves, and spreads).
+
+Update the tools/list endpoint to include all new tools and handle all new tools/call methods.
