@@ -1,10 +1,12 @@
 const express = require('express');
 const axios = require('axios');
+const cors = require('cors');
 const { parse } = require('csv-parse/sync');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(cors());
 app.use(express.json());
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRHJPShab7BlRDTQU_HIf0mQnGGqtuRh1YKsV9Emtp3qYMB-it3uuKCWijtsy7t0tT6TjHGtN_FBkr9/pub?gid=0&single=true&output=csv';
@@ -24,7 +26,6 @@ async function fetchTeams() {
   }
 }
 
-// Helper to extract Pokemon from a team row
 function getPokemonList(team) {
   const pkmn = [];
   for (let i = 1; i <= 6; i++) {
@@ -41,119 +42,96 @@ function getPokemonList(team) {
   return [...new Set(pkmn)];
 }
 
-// Root route
-app.get('/', (req, res) => {
-  res.send('VGC Team Finder API is running');
-});
+const toolsList = [
+  {
+    name: 'search_teams',
+    description: 'Search for teams in the team database',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'The search query' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_pokemon_usage',
+    description: 'Analyzes all teams and returns Pokemon usage statistics',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        format: { type: 'string', description: 'Filter by regulation (e.g., "Reg J")' }
+      }
+    }
+  },
+  {
+    name: 'random_team',
+    description: 'Returns a random team from the database for inspiration',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        format: { type: 'string', description: 'Filter by regulation' }
+      }
+    }
+  },
+  {
+    name: 'filter_teams',
+    description: 'Advanced team filtering',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        format: { type: 'string' },
+        must_have: { type: 'array', items: { type: 'string' } },
+        must_not_have: { type: 'array', items: { type: 'string' } },
+        event: { type: 'string' }
+      }
+    }
+  },
+  {
+    name: 'get_damage_calc',
+    description: 'Calculate damage between two Pokemon in VGC Doubles format',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        attacker: { type: 'string' },
+        defender: { type: 'string' },
+        move: { type: 'string' }
+      },
+      required: ['attacker', 'defender', 'move']
+    }
+  },
+  {
+    name: 'export_team',
+    description: 'Export a team to Pokemon Showdown paste format',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        player: { type: 'string', description: 'Player name to find their team' }
+      },
+      required: ['player']
+    }
+  }
+];
 
-// SSE endpoint for ChatGPT
-app.get('/sse', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-  
-  const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
-  req.on('close', () => clearInterval(keepAlive));
-});
-
-// MCP Endpoint
-app.post('/mcp', (req, res) => {
-  const { method, params } = req.body;
+function handleMcpRequest(method, params) {
+  let filtered = teams;
+  if (params && params.format) {
+    filtered = teams.filter(t => 
+      Object.values(t).some(v => String(v).toLowerCase().includes(params.format.toLowerCase()))
+    );
+  }
 
   if (method === 'initialize') {
-    return res.json({
-      capabilities: {
-        tools: {}
-      }
-    });
+    return { protocolVersion: '2024-11-05', capabilities: { tools: {} } };
   }
 
   if (method === 'tools/list') {
-    return res.json({
-      tools: [
-        {
-          name: 'search_teams',
-          description: 'Search for teams in the team database',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: { type: 'string', description: 'The search query' }
-            },
-            required: ['query']
-          }
-        },
-        {
-          name: 'get_pokemon_usage',
-          description: 'Analyzes all teams and returns Pokemon usage statistics',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              format: { type: 'string', description: 'Filter by regulation (e.g., "Reg J")' }
-            }
-          }
-        },
-        {
-          name: 'random_team',
-          description: 'Returns a random team from the database for inspiration',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              format: { type: 'string', description: 'Filter by regulation' }
-            }
-          }
-        },
-        {
-          name: 'filter_teams',
-          description: 'Advanced team filtering',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              format: { type: 'string' },
-              must_have: { type: 'array', items: { type: 'string' } },
-              must_not_have: { type: 'array', items: { type: 'string' } },
-              event: { type: 'string' }
-            }
-          }
-        },
-        {
-          name: 'get_damage_calc',
-          description: 'Calculate damage between two Pokemon in VGC Doubles format',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              attacker: { type: 'string' },
-              defender: { type: 'string' },
-              move: { type: 'string' }
-            },
-            required: ['attacker', 'defender', 'move']
-          }
-        },
-        {
-          name: 'export_team',
-          description: 'Export a team to Pokemon Showdown paste format',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              player: { type: 'string', description: 'Player name to find their team' }
-            },
-            required: ['player']
-          }
-        }
-      ]
-    });
+    return { tools: toolsList };
   }
 
   if (method === 'tools/call') {
     const { name, arguments: args } = params;
     
-    let filtered = teams;
-    if (args && args.format) {
-      filtered = teams.filter(t => 
-        Object.values(t).some(v => String(v).toLowerCase().includes(args.format.toLowerCase()))
-      );
-    }
-
     if (name === 'search_teams') {
       const query = args.query.toLowerCase();
       const results = teams.filter(team => {
@@ -161,7 +139,7 @@ app.post('/mcp', (req, res) => {
           String(value).toLowerCase().includes(query)
         );
       });
-      return res.json({ content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] });
+      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
     }
 
     if (name === 'get_pokemon_usage') {
@@ -179,13 +157,13 @@ app.post('/mcp', (req, res) => {
           percentage: ((count / filtered.length) * 100).toFixed(1) + '%'
         }))
         .sort((a, b) => b.count - a.count);
-      return res.json({ content: [{ type: 'text', text: JSON.stringify(sorted, null, 2) }] });
+      return { content: [{ type: 'text', text: JSON.stringify(sorted, null, 2) }] };
     }
 
     if (name === 'random_team') {
-      if (filtered.length === 0) return res.json({ content: [{ type: 'text', text: "No teams found" }] });
+      if (filtered.length === 0) return { content: [{ type: 'text', text: "No teams found" }] };
       const team = filtered[Math.floor(Math.random() * filtered.length)];
-      return res.json({ content: [{ type: 'text', text: JSON.stringify(team, null, 2) }] });
+      return { content: [{ type: 'text', text: JSON.stringify(team, null, 2) }] };
     }
 
     if (name === 'filter_teams') {
@@ -207,7 +185,7 @@ app.post('/mcp', (req, res) => {
           Object.values(t).some(v => String(v).toLowerCase().includes(args.event.toLowerCase()))
         );
       }
-      return res.json({ content: [{ type: 'text', text: JSON.stringify(results.slice(0, 10), null, 2) }] });
+      return { content: [{ type: 'text', text: JSON.stringify(results.slice(0, 10), null, 2) }] };
     }
 
     if (name === 'get_damage_calc') {
@@ -220,24 +198,65 @@ app.post('/mcp', (req, res) => {
       const high = (baseMax * multiplier).toFixed(1);
       const response = `${args.attacker} ${args.move} vs. ${args.defender}: ${low}% - ${high}%\n` +
                        `Possible ${Math.ceil(100/high)}-${Math.ceil(100/low)}HKO`;
-      return res.json({ content: [{ type: 'text', text: response }] });
+      return { content: [{ type: 'text', text: response }] };
     }
 
     if (name === 'export_team') {
       const team = teams.find(t => 
         (t.Player || t.player || "").toLowerCase() === args.player.toLowerCase()
       );
-      if (!team) return res.json({ content: [{ type: 'text', text: "Player not found" }] });
+      if (!team) return { content: [{ type: 'text', text: "Player not found" }] };
       const pkmns = getPokemonList(team);
       let exportText = "";
       pkmns.forEach(p => {
         exportText += `${p} @ Sitrus Berry\nAbility: Pressure\nLevel: 50\nEVs: 252 HP / 252 SpA / 4 SpD\nModest Nature\n- Protect\n- Tera Blast\n- Substitute\n- Helping Hand\n\n`;
       });
-      return res.json({ content: [{ type: 'text', text: exportText }] });
+      return { content: [{ type: 'text', text: exportText }] };
     }
   }
+  return null;
+}
 
-  res.status(404).json({ error: 'Method not found' });
+app.get('/', (req, res) => {
+  res.send('VGC Team Finder API is running');
+});
+
+// Initial SSE connection
+app.get('/sse', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  
+  const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
+  req.on('close', () => clearInterval(keepAlive));
+});
+
+// MCP message handler over SSE protocol
+app.post('/sse', (req, res) => {
+  const { method, params, id } = req.body;
+  const result = handleMcpRequest(method, params);
+  
+  if (result) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.write(`data: ${JSON.stringify({ jsonrpc: '2.0', id, result })}\n\n`);
+    res.end();
+  } else {
+    res.status(404).json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
+  }
+});
+
+// Keep legacy MCP endpoint for compatibility
+app.post('/mcp', (req, res) => {
+  const { method, params, id } = req.body;
+  const result = handleMcpRequest(method, params);
+  if (result) {
+    res.json({ jsonrpc: '2.0', id, result });
+  } else {
+    res.status(404).json({ error: 'Method not found' });
+  }
 });
 
 app.listen(PORT, '0.0.0.0', async () => {

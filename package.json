@@ -12,6 +12,7 @@
   "dependencies": {
     "@types/node": "^22.13.11",
     "axios": "^1.13.2",
+    "cors": "^2.8.5",
     "csv-parse": "^6.1.0",
     "express": "^5.2.1"
   }
