@@ -1,265 +1,72 @@
 const express = require('express');
-const axios = require('axios');
 const cors = require('cors');
-const { parse } = require('csv-parse/sync');
-
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.json());
-
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRHJPShab7BlRDTQU_HIf0mQnGGqtuRh1YKsV9Emtp3qYMB-it3uuKCWijtsy7t0tT6TjHGtN_FBkr9/pub?gid=0&single=true&output=csv';
 
 let teams = [];
 
+// Fetch CSV data
 async function fetchTeams() {
   try {
-    const response = await axios.get(CSV_URL);
-    teams = parse(response.data, {
-      columns: true,
-      skip_empty_lines: true,
-    });
-    console.log(`Fetched ${teams.length} teams.`);
-  } catch (error) {
-    console.error('Error fetching CSV:', error.message);
-  }
+    const res = await fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vRHJPShab7BlRDTQU_HIf0mQnGGqtuRh1YKsV9Emtp3qYMB-it3uuKCWijtsy7t0tT6TjHGtN_FBkr9/pub?gid=0&single=true&output=csv');
+    const text = await res.text();
+    const rows = text.split('\n').slice(1);
+    teams = rows.map(row => {
+      const cols = row.split(',');
+      return { player: cols[0], event: cols[1], pokemon: cols.slice(2, 8), pokepaste: cols[8], format: cols[9] };
+    }).filter(t => t.player);
+    console.log(`Loaded ${teams.length} teams`);
+  } catch (e) { console.error('CSV fetch error:', e); }
 }
+fetchTeams();
 
-function getPokemonList(team) {
-  const pkmn = [];
-  for (let i = 1; i <= 6; i++) {
-    const name = team[`Pokemon ${i}`] || team[`Pkmn ${i}`] || team[`pkmn${i}`];
-    if (name) pkmn.push(name.trim());
-  }
-  if (pkmn.length === 0) {
-    Object.keys(team).forEach(key => {
-      if (key.toLowerCase().includes('pokemon') || key.toLowerCase().includes('pkmn')) {
-        if (team[key]) pkmn.push(team[key].trim());
-      }
-    });
-  }
-  return [...new Set(pkmn)];
-}
+const TOOLS = [{
+  name: 'search_teams',
+  description: 'Search VGC teams by Pokemon, player, event, or format (Reg A-J)',
+  inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }
+}];
 
-const toolsList = [
-  {
-    name: 'search_teams',
-    description: 'Search for teams in the team database',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'The search query' }
-      },
-      required: ['query']
-    }
-  },
-  {
-    name: 'get_pokemon_usage',
-    description: 'Analyzes all teams and returns Pokemon usage statistics',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        format: { type: 'string', description: 'Filter by regulation (e.g., "Reg J")' }
-      }
-    }
-  },
-  {
-    name: 'random_team',
-    description: 'Returns a random team from the database for inspiration',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        format: { type: 'string', description: 'Filter by regulation' }
-      }
-    }
-  },
-  {
-    name: 'filter_teams',
-    description: 'Advanced team filtering',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        format: { type: 'string' },
-        must_have: { type: 'array', items: { type: 'string' } },
-        must_not_have: { type: 'array', items: { type: 'string' } },
-        event: { type: 'string' }
-      }
-    }
-  },
-  {
-    name: 'get_damage_calc',
-    description: 'Calculate damage between two Pokemon in VGC Doubles format',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        attacker: { type: 'string' },
-        defender: { type: 'string' },
-        move: { type: 'string' }
-      },
-      required: ['attacker', 'defender', 'move']
-    }
-  },
-  {
-    name: 'export_team',
-    description: 'Export a team to Pokemon Showdown paste format',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        player: { type: 'string', description: 'Player name to find their team' }
-      },
-      required: ['player']
-    }
-  }
-];
-
-function handleMcpRequest(method, params) {
-  let filtered = teams;
-  if (params && params.format) {
-    filtered = teams.filter(t => 
-      Object.values(t).some(v => String(v).toLowerCase().includes(params.format.toLowerCase()))
-    );
-  }
-
+function handleMethod(method, params) {
   if (method === 'initialize') {
-    return { protocolVersion: '2024-11-05', capabilities: { tools: {} } };
+    return { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'vgc-team-finder', version: '1.0.0' } };
   }
-
   if (method === 'tools/list') {
-    return { tools: toolsList };
+    return { tools: TOOLS };
   }
-
-  if (method === 'tools/call') {
-    const { name, arguments: args } = params;
-    
-    if (name === 'search_teams') {
-      const query = args.query.toLowerCase();
-      const results = teams.filter(team => {
-        return Object.values(team).some(value => 
-          String(value).toLowerCase().includes(query)
-        );
-      });
-      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
-    }
-
-    if (name === 'get_pokemon_usage') {
-      const usage = {};
-      filtered.forEach(team => {
-        const pkmns = getPokemonList(team);
-        pkmns.forEach(p => {
-          usage[p] = (usage[p] || 0) + 1;
-        });
-      });
-      const sorted = Object.entries(usage)
-        .map(([pokemon, count]) => ({
-          pokemon,
-          count,
-          percentage: ((count / filtered.length) * 100).toFixed(1) + '%'
-        }))
-        .sort((a, b) => b.count - a.count);
-      return { content: [{ type: 'text', text: JSON.stringify(sorted, null, 2) }] };
-    }
-
-    if (name === 'random_team') {
-      if (filtered.length === 0) return { content: [{ type: 'text', text: "No teams found" }] };
-      const team = filtered[Math.floor(Math.random() * filtered.length)];
-      return { content: [{ type: 'text', text: JSON.stringify(team, null, 2) }] };
-    }
-
-    if (name === 'filter_teams') {
-      let results = filtered;
-      if (args.must_have) {
-        results = results.filter(t => {
-          const pkmns = getPokemonList(t).map(p => p.toLowerCase());
-          return args.must_have.every(p => pkmns.includes(p.toLowerCase()));
-        });
-      }
-      if (args.must_not_have) {
-        results = results.filter(t => {
-          const pkmns = getPokemonList(t).map(p => p.toLowerCase());
-          return !args.must_not_have.some(p => pkmns.includes(p.toLowerCase()));
-        });
-      }
-      if (args.event) {
-        results = results.filter(t => 
-          Object.values(t).some(v => String(v).toLowerCase().includes(args.event.toLowerCase()))
-        );
-      }
-      return { content: [{ type: 'text', text: JSON.stringify(results.slice(0, 10), null, 2) }] };
-    }
-
-    if (name === 'get_damage_calc') {
-      const spreadMoves = ['earthquake', 'rock slide', 'dazzling gleam', 'make it rain', 'glacial lance', 'astral barrrage', 'expanding force', 'heat wave', 'muddy water', 'snarl', 'icy wind', 'electroweb'];
-      const isSpread = spreadMoves.includes(args.move.toLowerCase());
-      const baseMin = 35;
-      const baseMax = 42;
-      const multiplier = isSpread ? 0.75 : 1.0;
-      const low = (baseMin * multiplier).toFixed(1);
-      const high = (baseMax * multiplier).toFixed(1);
-      const response = `${args.attacker} ${args.move} vs. ${args.defender}: ${low}% - ${high}%\n` +
-                       `Possible ${Math.ceil(100/high)}-${Math.ceil(100/low)}HKO`;
-      return { content: [{ type: 'text', text: response }] };
-    }
-
-    if (name === 'export_team') {
-      const team = teams.find(t => 
-        (t.Player || t.player || "").toLowerCase() === args.player.toLowerCase()
-      );
-      if (!team) return { content: [{ type: 'text', text: "Player not found" }] };
-      const pkmns = getPokemonList(team);
-      let exportText = "";
-      pkmns.forEach(p => {
-        exportText += `${p} @ Sitrus Berry\nAbility: Pressure\nLevel: 50\nEVs: 252 HP / 252 SpA / 4 SpD\nModest Nature\n- Protect\n- Tera Blast\n- Substitute\n- Helping Hand\n\n`;
-      });
-      return { content: [{ type: 'text', text: exportText }] };
-    }
+  if (method === 'tools/call' && params?.name === 'search_teams') {
+    const q = (params.arguments?.query || '').toLowerCase();
+    const results = teams.filter(t => 
+      [t.player, t.event, t.format, ...t.pokemon].join(' ').toLowerCase().includes(q)
+    ).slice(0, 10);
+    return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
   }
-  return null;
+  return { error: { code: -32601, message: 'Method not found' } };
 }
 
-app.get('/', (req, res) => {
-  res.send('VGC Team Finder API is running');
-});
-
-// Initial SSE connection
+// GET /sse - Initial SSE connection
 app.get('/sse', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.flushHeaders();
   
-  const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
-  req.on('close', () => clearInterval(keepAlive));
-});
-
-// MCP message handler over SSE protocol
-app.post('/sse', (req, res) => {
-  const { method, params, id } = req.body;
-  const result = handleMcpRequest(method, params);
+  res.write(':ok\n\n');
   
-  if (result) {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.write(`data: ${JSON.stringify({ jsonrpc: '2.0', id, result })}\n\n`);
-    res.end();
-  } else {
-    res.status(404).json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
-  }
+  const ping = setInterval(() => res.write(':ping\n\n'), 15000);
+  req.on('close', () => clearInterval(ping));
 });
 
-// Keep legacy MCP endpoint for compatibility
-app.post('/mcp', (req, res) => {
-  const { method, params, id } = req.body;
-  const result = handleMcpRequest(method, params);
-  if (result) {
-    res.json({ jsonrpc: '2.0', id, result });
-  } else {
-    res.status(404).json({ error: 'Method not found' });
-  }
+// POST /sse - Handle MCP messages
+app.post('/sse', (req, res) => {
+  const { jsonrpc, id, method, params } = req.body;
+  const result = handleMethod(method, params);
+  res.json({ jsonrpc: '2.0', id, result });
 });
 
-app.listen(PORT, '0.0.0.0', async () => {
-  await fetchTeams();
-  console.log(`Server running on port ${PORT}`);
-});
+// Health check
+app.get('/', (req, res) => res.send('VGC Team Finder MCP Server'));
+
+app.listen(process.env.PORT || 3000, () => console.log('Server running'));
