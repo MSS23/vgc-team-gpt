@@ -99,15 +99,16 @@ function handleMethod(method, params) {
       serverInfo: { name: 'vgc-team-finder', version: '1.0.0' } 
     };
   }
-  if (method === 'resources/list') {
+  if (method === 'resources/get' && params?.uri === 'ui://widgets/team-finder') {
+    const fs = require('fs');
+    const path = require('path');
+    const widgetHtml = fs.readFileSync(path.join(__dirname, 'widget.html'), 'utf8');
     return {
-      resources: [
-        {
-          uri: 'ui://widgets/team-finder',
-          name: 'VGC Team Finder UI',
-          mimeType: 'text/html+skybridge'
-        }
-      ]
+      contents: [{
+        uri: 'ui://widgets/team-finder',
+        mimeType: 'text/html+skybridge',
+        text: widgetHtml
+      }]
     };
   }
   if (method === 'tools/list') {
