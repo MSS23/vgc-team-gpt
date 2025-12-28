@@ -22,16 +22,6 @@ async function fetchTeams() {
     const dataRows = records.slice(1);
 
     teams = dataRows.map(cols => {
-      // Column Indices:
-      // 0: Team ID
-      // 1: Description
-      // 3: Player (Full Name)
-      // 5, 8, 11, 14, 17, 20: Items
-      // 24: Pokepaste
-      // 29: Date Shared
-      // 30: Tournament / Event
-      // 35-40: Pokemon Names
-      
       const itemIndices = [5, 8, 11, 14, 17, 20];
       const items = itemIndices.map(idx => cols[idx] || 'None');
       const pokemonNames = cols.slice(35, 41).map(p => p.trim());
@@ -116,10 +106,15 @@ function handleMethod(method, params) {
 
     const finalTeams = results.slice(0, limit);
     return { 
-      total: results.length,
-      showing: finalTeams.length,
-      sortedBy: sort,
-      teams: finalTeams
+      content: [{ 
+        type: 'text', 
+        text: JSON.stringify({
+          totalResults: results.length,
+          showing: finalTeams.length,
+          sortedBy: sort,
+          teams: finalTeams
+        }, null, 2)
+      }]
     };
   }
   return { error: { code: -32601, message: 'Method not found' } };
@@ -138,7 +133,10 @@ app.get('/sse', (req, res) => {
 app.post('/sse', (req, res) => {
   const { jsonrpc, id, method, params } = req.body;
   const result = handleMethod(method, params);
-  res.json({ jsonrpc: '2.0', id, result });
+  
+  const response = { jsonrpc: '2.0', id, result };
+  console.log('Sending response:', JSON.stringify(response));
+  res.json(response);
 });
 
 app.get('/', (req, res) => res.send('VGC Team Finder MCP Server'));
