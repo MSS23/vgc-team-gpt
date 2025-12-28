@@ -24,14 +24,23 @@ async function fetchTeams() {
     const dataRows = records.slice(1);
 
     teams = dataRows.map(cols => {
-      // Based on raw inspection:
-      // Pokemon names are actually in columns 35, 36, 37, 38, 39, 40 (0-indexed)
-      // Header: Pokemon Text for Copypasta starts around index 35
-      // Let's verify and map accurately
+      // Final index adjustment based on raw verification:
+      // cols[0] = Team ID
+      // cols[1] = Description
+      // cols[3] = Player (Full Name)
+      // cols[24] = Pokepaste
+      // cols[25] = EVs (often contains "Yes" or link)
+      // cols[26] = Extracted paste?
+      // cols[27] = Rental Status
+      // cols[28] = Rental Code
+      // cols[29] = Date Shared
+      // cols[30] = Tournament / Event
+      // cols[31] = Rank
+      // Pokemon names actually start at index 35
       
       const pokemon = [
         cols[35], cols[36], cols[37], cols[38], cols[39], cols[40]
-      ].filter(p => p && p.trim());
+      ].filter(p => p && p.trim() && p.toLowerCase() !== 'unironicpanda');
 
       return {
         id: cols[0],
@@ -39,9 +48,9 @@ async function fetchTeams() {
         player: cols[3],
         pokemon: pokemon,
         pokepaste: cols[24],
-        date: cols[28],
-        event: cols[29],
-        rank: cols[30],
+        date: cols[29],
+        event: cols[30],
+        rank: cols[31],
         format: 'VGC'
       };
     }).filter(t => t.player || t.pokemon.length > 0);
