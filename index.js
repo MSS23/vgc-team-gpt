@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const { parse } = require('csv-parse/sync');
 const app = express();
 
 app.use(cors({ origin: '*' }));
@@ -11,38 +12,46 @@ let teams = [];
 async function fetchTeams() {
   try {
     const res = await fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vRHJPShab7BlRDTQU_HIf0mQnGGqtuRh1YKsV9Emtp3qYMB-it3uuKCWijtsy7t0tT6TjHGtN_FBkr9/pub?gid=0&single=true&output=csv');
-    const text = await res.text();
-    const rows = text.split('\n');
-    const headers = rows[0].split(',');
+    const csvData = await res.text();
     
-    // Find column indices
-    const playerIdx = headers.findIndex(h => h.toLowerCase().includes('full name'));
-    const descriptionIdx = headers.findIndex(h => h.toLowerCase().includes('team description'));
-    const pokepasteIdx = headers.findIndex(h => h.toLowerCase().includes('pokepaste'));
-    const dateIdx = headers.findIndex(h => h.toLowerCase().includes('date shared'));
-    const eventIdx = headers.findIndex(h => h.toLowerCase().includes('tournament / event'));
-    
-    // Pokemon names are usually at the end under "Pokemon Text for Copypasta"
-    // In this specific CSV, they seem to be in the last 6 columns
-    const pokemonStartIdx = headers.length - 6;
+    const records = parse(csvData, {
+      columns: false,
+      skip_empty_lines: true,
+      relax_column_count: true
+    });
 
-    teams = rows.slice(1).map(row => {
-      const cols = row.split(',');
-      if (cols.length < 5) return null;
+    // Skip header row
+    const dataRows = records.slice(1);
+
+    teams = dataRows.map(cols => {
+      // Based on raw inspection:
+      // Pokemon names are actually in columns 35, 36, 37, 38, 39, 40 (0-indexed)
+      // Header: Pokemon Text for Copypasta starts around index 35
+      // Let's verify and map accurately
+      
+      const pokemon = [
+        cols[35], cols[36], cols[37], cols[38], cols[39], cols[40]
+      ].filter(p => p && p.trim());
 
       return {
-        player: cols[playerIdx] || 'Unknown',
-        description: cols[descriptionIdx] || '',
-        event: cols[eventIdx] || 'Ladder/Social',
-        date: cols[dateIdx] || '',
-        pokemon: cols.slice(pokemonStartIdx, pokemonStartIdx + 6).filter(p => p && p.trim()),
-        pokepaste: cols[pokepasteIdx] || '',
-        format: 'VGC' // Default if not clearly marked in a single column
+        id: cols[0],
+        description: cols[1],
+        player: cols[3],
+        pokemon: pokemon,
+        pokepaste: cols[24],
+        date: cols[28],
+        event: cols[29],
+        rank: cols[30],
+        format: 'VGC'
       };
-    }).filter(t => t && (t.player !== 'Unknown' || t.pokemon.length > 0));
-    
+    }).filter(t => t.player || t.pokemon.length > 0);
+
     console.log(`Loaded ${teams.length} teams`);
-  } catch (e) { console.error('CSV fetch error:', e); }
+    console.log('Verification (First Team):', JSON.stringify(teams[0], null, 2));
+
+  } catch (e) { 
+    console.error('CSV fetch error:', e); 
+  }
 }
 fetchTeams();
 
@@ -63,7 +72,11 @@ const TOOLS = [{
 
 function handleMethod(method, params) {
   if (method === 'initialize') {
-    return { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'vgc-team-finder', version: '1.0.0' } };
+    return { 
+      protocolVersion: '2024-11-05', 
+      capabilities: { tools: {} }, 
+      serverInfo: { name: 'vgc-team-finder', version: '1.0.0' } 
+    };
   }
   if (method === 'tools/list') {
     return { tools: TOOLS };
@@ -78,28 +91,23 @@ function handleMethod(method, params) {
   return { error: { code: -32601, message: 'Method not found' } };
 }
 
-// GET /sse - Initial SSE connection
 app.get('/sse', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.flushHeaders();
-  
   res.write(':ok\n\n');
-  
   const ping = setInterval(() => res.write(':ping\n\n'), 15000);
   req.on('close', () => clearInterval(ping));
 });
 
-// POST /sse - Handle MCP messages
 app.post('/sse', (req, res) => {
   const { jsonrpc, id, method, params } = req.body;
   const result = handleMethod(method, params);
   res.json({ jsonrpc: '2.0', id, result });
 });
 
-// Health check
 app.get('/', (req, res) => res.send('VGC Team Finder MCP Server'));
 
 app.listen(process.env.PORT || 3000, () => console.log('Server running'));
