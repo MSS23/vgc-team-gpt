@@ -42,6 +42,7 @@ function getPokemonList(team) {
 
 // SSE Endpoint
 app.get('/sse', (req, res) => {
+  console.log('SSE connection requested');
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -52,6 +53,7 @@ app.get('/sse', (req, res) => {
   }, 30000);
 
   req.on('close', () => {
+    console.log('SSE connection closed');
     clearInterval(pingInterval);
   });
 });
