@@ -87,6 +87,8 @@ function handleMethod(method, params) {
     const sort = params.arguments?.sort || 'recent';
     const queryParts = q.split(' ').filter(p => p.length > 0);
 
+    console.log('Search query:', q);
+
     const results = teams.filter(t => {
       const searchStr = [
         t.player,
@@ -97,6 +99,8 @@ function handleMethod(method, params) {
       ].join(' ').toLowerCase();
       return queryParts.every(part => searchStr.includes(part));
     });
+
+    console.log('Results found:', results.length);
 
     if (sort === 'oldest') {
       results.sort((a, b) => a.dateValue - b.dateValue);
