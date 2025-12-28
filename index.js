@@ -73,9 +73,42 @@ const TOOLS = [{
   annotations: { requiresUserData: false }
 }];
 
+// MCP Resources
+app.get('/resources/team-finder-ui', (req, res) => {
+  res.setHeader('Content-Type', 'text/html+skybridge');
+  const widgetPath = require('path').join(__dirname, 'widget.html');
+  res.sendFile(widgetPath);
+});
+
 function handleMethod(method, params) {
   if (method === 'initialize') {
-    return { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'vgc-team-finder', version: '1.0.0' } };
+    return { 
+      protocolVersion: '2024-11-05', 
+      capabilities: { 
+        tools: {},
+        resources: {
+          list: [
+            {
+              uri: 'ui://widgets/team-finder',
+              name: 'VGC Team Finder UI',
+              mimeType: 'text/html+skybridge'
+            }
+          ]
+        }
+      }, 
+      serverInfo: { name: 'vgc-team-finder', version: '1.0.0' } 
+    };
+  }
+  if (method === 'resources/list') {
+    return {
+      resources: [
+        {
+          uri: 'ui://widgets/team-finder',
+          name: 'VGC Team Finder UI',
+          mimeType: 'text/html+skybridge'
+        }
+      ]
+    };
   }
   if (method === 'tools/list') {
     return { tools: TOOLS };
@@ -87,7 +120,6 @@ function handleMethod(method, params) {
 
     console.log('Search query:', q);
 
-    // Advanced search logic: split by 'and' or whitespace
     const searchTerms = q.split(/\s+and\s+|\s+/).filter(t => t.length > 0);
     
     let results = teams.filter(team => {
@@ -99,10 +131,7 @@ function handleMethod(method, params) {
       const searchBlob = [player, event, desc, ...pokemonNames].join(' ');
 
       return searchTerms.every(term => {
-        // Handle "chien pao" -> "chien-pao" normalization for partial matches
         const normalizedTerm = term.replace(/\s+/g, '-');
-        // Check if any part of the team data includes the term
-        // Specifically check pokemon names for hyphenated matches
         return searchBlob.includes(term) || 
                searchBlob.includes(normalizedTerm) ||
                pokemonNames.some(name => name.includes(normalizedTerm));
@@ -119,7 +148,6 @@ function handleMethod(method, params) {
 
     const finalTeams = results.slice(0, limit);
     
-    // Build formatted response string
     let responseText = `Found ${results.length} teams matching your search\n\n`;
     
     finalTeams.forEach(team => {
@@ -134,7 +162,14 @@ function handleMethod(method, params) {
       content: [{ 
         type: 'text', 
         text: responseText
-      }]
+      }],
+      structuredContent: {
+        total: results.length,
+        teams: finalTeams
+      },
+      _meta: {
+        'openai/outputTemplate': 'ui://widgets/team-finder'
+      }
     };
   }
   return { error: { code: -32601, message: 'Method not found' } };
