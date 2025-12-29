@@ -8,106 +8,160 @@ app.use(express.json());
 
 let teams = [];
 
-async function fetchTeams() {
-  try {
-    const res = await fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vRHJPShab7BlRDTQU_HIf0mQnGGqtuRh1YKsV9Emtp3qYMB-it3uuKCWijtsy7t0tT6TjHGtN_FBkr9/pub?gid=0&single=true&output=csv');
-    const csvData = await res.text();
+// VGCPastes public repository - multiple regulation sheets
+const SPREADSHEET_ID = '1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw';
+const REGULATIONS = [
+  { name: 'J', sheet: 'SV Regulation J' },
+  { name: 'I', sheet: 'SV Regulation I' },
+  { name: 'H', sheet: 'SV Regulation H' },
+  { name: 'G', sheet: 'SV Regulation G' },
+  { name: 'F', sheet: 'SV Regulation F' },
+  { name: 'E', sheet: 'SV Regulation E' },
+  { name: 'D', sheet: 'SV Regulation D' },
+  { name: 'C', sheet: 'SV Regulation C' }
+];
 
+// Helper to generate sprite URL
+const getSpriteUrl = (name) => {
+  if (!name) return null;
+  let slug = name.toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[''.]/g, '')
+    .replace(/♀/g, '-f')
+    .replace(/♂/g, '-m')
+    .replace(/:/g, '');
+  return `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
+};
+
+async function fetchSheetData(regulation) {
+  const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(regulation.sheet)}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.log(`  ⚠️ Could not fetch ${regulation.sheet}: ${res.status}`);
+      return [];
+    }
+
+    const csvData = await res.text();
     const records = parse(csvData, {
       columns: false,
       skip_empty_lines: true,
-      relax_column_count: true
+      relax_column_count: true,
+      quote: '"',
+      escape: '"'
     });
 
-    // Skip 2 header rows (row 0 and row 1 are both headers)
-    const dataRows = records.slice(2);
+    // Skip header rows (first 2-3 rows are headers/info)
+    const dataRows = records.slice(3);
 
-    // Double validation: Track Pokemon from both column sets
+    // VGCPastes CSV format (from actual CSV output):
+    // 0: Team ID
+    // 1: Description
+    // 3: Player name
+    // 7,10,13,16,19,22: Items (Slot 1-6)
+    // 24: Pokepaste URL
+    // 28: Rental Code
+    // 29: Date
+    // 30: Event
+    // 31: Rank
+    // 32: Source Link
+    // 33: Video Link
+    // 35: Owner
+    // 37-42: Pokemon names (Slot 1-6)
+
     const itemIndices = [7, 10, 13, 16, 19, 22];
     const pokemonIndices = [37, 38, 39, 40, 41, 42];
-    let validationIssues = [];
 
-    teams = dataRows.map((cols, rowIdx) => {
-      // Get Pokemon from dedicated Pokemon columns (37-42)
-      const pokemonFromCols = pokemonIndices.map(i => (cols[i] || '').trim()).filter(p => p && p.toLowerCase() !== 'unironicpanda');
+    const sheetTeams = dataRows.map((cols, rowIdx) => {
+      // Skip empty rows or rows without team ID
+      const teamId = (cols[0] || '').trim();
+      if (!teamId || teamId.toLowerCase() === 'team id' || !teamId.match(/^[A-Z]\d+$/i)) return null;
 
-      // Get items from item columns (7, 10, 13, 16, 19, 22)
-      const itemsFromCols = itemIndices.map(i => (cols[i] || '').trim()).filter(it => it);
+      // Get Pokemon names from columns 37-42
+      const pokemonNames = pokemonIndices.map(i => (cols[i] || '').trim()).filter(p => p && p !== '-');
 
-      // Double validation: Pokemon count should match item count (6 Pokemon = 6 items)
-      if (pokemonFromCols.length > 0 && pokemonFromCols.length !== itemsFromCols.length) {
-        validationIssues.push({
-          row: rowIdx + 3,
-          teamId: (cols[0] || '').trim(),
-          pokemonCount: pokemonFromCols.length,
-          itemCount: itemsFromCols.length
-        });
-      }
+      // Get items from columns 7,10,13,16,19,22
+      const items = itemIndices.map(i => (cols[i] || '').trim());
 
-      // Helper to generate sprite URL from Pokemon name using Serebii
-      const getSpriteUrl = (name) => {
-        if (!name) return null;
-        // Convert name to slug format for img.pokemondb.net (most reliable for all forms)
-        let slug = name.toLowerCase()
-          .replace(/\s+/g, '-')
-          .replace(/[''.]/g, '')
-          .replace(/♀/g, '-f')
-          .replace(/♂/g, '-m')
-          .replace(/:/g, '');
+      // Build Pokemon array with items
+      const teamPokemon = pokemonNames.map((name, i) => ({
+        name,
+        item: items[i] || 'Unknown',
+        sprite: getSpriteUrl(name)
+      })).filter(p => p.name);
 
-        // Use PokemonDB which has reliable sprites for all forms
-        return `https://img.pokemondb.net/sprites/home/normal/${slug}.png`;
-      };
+      // If no Pokemon found, skip this row
+      if (teamPokemon.length === 0) return null;
 
-      // Build team Pokemon with items matched by slot order
-      const teamPokemon = pokemonIndices.map((pIdx, i) => {
-        const name = (cols[pIdx] || '').trim();
-        const item = (cols[itemIndices[i]] || 'None').trim();
-        return {
-          name,
-          item,
-          sprite: getSpriteUrl(name)
-        };
-      }).filter(p => p.name && p.name.toLowerCase() !== 'unironicpanda');
+      // Extract fields
+      const description = (cols[1] || '').trim();
+      const player = (cols[3] || '').trim();
+      const pokepaste = (cols[24] || '').trim();
+      const rentalCode = (cols[28] || '').trim();
+      const date = (cols[29] || '').trim();
+      const event = (cols[30] || '').trim();
+      const rank = (cols[31] || '').trim();
+      const sourceLink = (cols[32] || '').trim();
+      const videoLink = (cols[33] || '').trim();
 
-      const dateStr = cols[29] || '';
+      // Parse date
       let dateValue = 0;
-      if (dateStr) {
-        const parsed = new Date(dateStr);
+      if (date) {
+        const parsed = new Date(date);
         if (!isNaN(parsed.getTime())) {
           dateValue = parsed.getTime();
         }
       }
 
       return {
-        teamId: (cols[0] || '').trim(),
-        description: (cols[1] || '').trim(),
-        player: (cols[3] || '').trim(),
+        teamId,
+        description,
+        player,
         pokemon: teamPokemon,
-        pokepaste: (cols[24] || '').trim(),
-        rentalCode: (cols[28] || '').trim(),
-        date: dateStr,
+        pokepaste: pokepaste.startsWith('http') ? pokepaste : (pokepaste ? `https://${pokepaste}` : ''),
+        rentalCode: /^[A-Z0-9]{6}$/i.test(rentalCode) ? rentalCode.toUpperCase() : '',
+        date,
         dateValue,
-        event: (cols[30] || '').trim(),
-        rank: (cols[31] || '').trim(),
-        sourceLink: (cols[32] || '').trim(),
-        videoLink: (cols[33] || '').trim(),
-        owner: (cols[35] || '').trim(),
-        format: 'VGC'
+        event,
+        rank,
+        sourceLink,
+        videoLink,
+        regulation: regulation.name,
+        format: `Regulation ${regulation.name}`
       };
-    }).filter(t => t && (t.player || t.pokemon.length > 0));
+    }).filter(t => t !== null);
 
-    console.log(`Loaded ${teams.length} teams`);
+    return sheetTeams;
+  } catch (e) {
+    console.log(`  ❌ Error fetching ${regulation.sheet}:`, e.message);
+    return [];
+  }
+}
 
-    // Report validation issues
-    if (validationIssues.length > 0) {
-      console.log(`⚠️  Found ${validationIssues.length} teams with Pokemon/Item count mismatch:`);
-      validationIssues.forEach(issue => {
-        console.log(`   Row ${issue.row} (${issue.teamId}): ${issue.pokemonCount} Pokemon, ${issue.itemCount} items`);
-      });
-    } else {
-      console.log('✓ All teams passed Pokemon/Item validation');
+async function fetchTeams() {
+  try {
+    console.log('Fetching teams from VGCPastes repository...');
+
+    const allTeams = [];
+
+    for (const reg of REGULATIONS) {
+      console.log(`  Fetching ${reg.sheet}...`);
+      const sheetTeams = await fetchSheetData(reg);
+      console.log(`    ✓ Loaded ${sheetTeams.length} teams from ${reg.sheet}`);
+      allTeams.push(...sheetTeams);
     }
+
+    teams = allTeams;
+
+    console.log(`\n✅ Total: ${teams.length} teams loaded across ${REGULATIONS.length} regulations`);
+
+    // Count by regulation
+    const regCounts = {};
+    teams.forEach(t => {
+      regCounts[t.regulation] = (regCounts[t.regulation] || 0) + 1;
+    });
+    console.log('Teams by regulation:', regCounts);
 
     if (teams.length > 0) {
       console.log('Sample Team:', JSON.stringify(teams[0], null, 2));
@@ -124,15 +178,25 @@ setInterval(fetchTeams, 60 * 60 * 1000);
 const TOOLS = [
   {
     name: 'search_teams',
-    description: 'Search VGC teams by Pokemon, player, event, item, or regulation. Use "and" to combine terms (e.g., "Flutter Mane and Incineroar", "Worlds", "Reg G"). Searches across all team data.',
+    description: 'Search VGC teams by Pokemon, player, event, item, or regulation. Use "and" to combine terms (e.g., "Flutter Mane and Incineroar", "Worlds", "Reg G"). Searches across all regulations (J, I, H, G, F, E, D, C).',
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Search query - Pokemon name, player name, event name, item, or regulation. Use "and" for multiple terms.' },
+        regulation: { type: 'string', description: 'Filter by regulation (J, I, H, G, F, E, D, C). Leave empty for all regulations.' },
         limit: { type: 'integer', description: 'Number of results (default 50, max 500)', minimum: 1, maximum: 500 },
         sort: { type: 'string', enum: ['recent', 'oldest'], description: 'Sort by date' }
       },
       required: ['query']
+    }
+  },
+  {
+    name: 'get_regulations',
+    description: 'Get list of available regulations and how many teams are in each.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
     }
   },
   {
@@ -633,14 +697,40 @@ function handleMethod(method, params) {
     };
   }
 
+  // Tool: get_regulations
+  if (method === 'tools/call' && params?.name === 'get_regulations') {
+    const regCounts = {};
+    teams.forEach(t => {
+      regCounts[t.regulation] = (regCounts[t.regulation] || 0) + 1;
+    });
+
+    const sorted = Object.entries(regCounts)
+      .sort((a, b) => {
+        // Sort by regulation letter (J is most recent)
+        return a[0].localeCompare(b[0]);
+      });
+
+    let responseText = `📋 **Available Regulations** (${teams.length} total teams)\n\n`;
+    sorted.forEach(([reg, count]) => {
+      responseText += `**Regulation ${reg}** — ${count} teams\n`;
+    });
+
+    return {
+      content: [{ type: 'text', text: responseText }],
+      structuredContent: { totalTeams: teams.length, regulations: sorted.map(([name, count]) => ({ name, count })) }
+    };
+  }
+
   // Tool: search_teams
   if (method === 'tools/call' && params?.name === 'search_teams') {
     const q = (params.arguments?.query || '').toLowerCase();
+    const regulation = (params.arguments?.regulation || '').toUpperCase();
     const limit = Math.min(params.arguments?.limit || 50, 500);
     const sort = params.arguments?.sort || 'recent';
 
     console.log('Total teams in database:', teams.length);
     console.log('Search query:', q);
+    console.log('Regulation filter:', regulation || 'all');
 
     // Split by "and" first to get separate Pokemon/terms, then trim
     const searchTerms = q.split(/\s+and\s+/)
@@ -649,16 +739,24 @@ function handleMethod(method, params) {
 
     console.log('Search terms:', searchTerms);
 
-    let results = teams.filter(team => {
+    // Start with regulation filter if specified
+    let pool = teams;
+    if (regulation) {
+      pool = teams.filter(t => t.regulation === regulation);
+      console.log(`Filtered to ${pool.length} teams in Regulation ${regulation}`);
+    }
+
+    let results = pool.filter(team => {
       const pokemonNames = team.pokemon.map(p => p.name.toLowerCase());
       const pokemonNamesNormalized = team.pokemon.map(p => normalize(p.name));
       const itemNames = team.pokemon.map(p => p.item.toLowerCase());
       const player = team.player.toLowerCase();
       const event = team.event.toLowerCase();
       const desc = team.description.toLowerCase();
+      const format = team.format.toLowerCase();
 
       // Create searchable blob with spaces preserved
-      const searchBlob = [player, event, desc, ...pokemonNames, ...itemNames].join(' ');
+      const searchBlob = [player, event, desc, format, ...pokemonNames, ...itemNames].join(' ');
       const searchBlobNormalized = normalize(searchBlob);
 
       return searchTerms.every(term => {
@@ -673,6 +771,12 @@ function handleMethod(method, params) {
         // Check each Pokemon name individually
         if (pokemonNamesNormalized.some(name => name.includes(termNormalized))) return true;
 
+        // Check regulation match (e.g., "reg j" or just "j")
+        if (term.includes('reg') || term.length === 1) {
+          const regLetter = term.replace(/reg\s*/i, '').toUpperCase();
+          if (team.regulation === regLetter) return true;
+        }
+
         return false;
       });
     });
@@ -686,11 +790,11 @@ function handleMethod(method, params) {
     }
 
     const finalTeams = results.slice(0, limit);
-    
-    let responseText = `Found ${results.length} teams matching your search\n\n`;
+
+    let responseText = `Found ${results.length} teams matching your search${regulation ? ` (Regulation ${regulation})` : ''}\n\n`;
     finalTeams.forEach(team => {
       const pokemonList = team.pokemon.map(p => `${p.name} (${p.item})`).join(' / ');
-      responseText += `**${team.teamId}** — ${team.player} — ${team.description}\n`;
+      responseText += `**${team.teamId}** [Reg ${team.regulation}] — ${team.player} — ${team.description}\n`;
       responseText += `📅 ${team.date} — ${team.event}${team.rank && team.rank !== '-' ? ` (${team.rank})` : ''}\n`;
       responseText += `🔢 ${pokemonList}\n`;
       responseText += `🔗 Pokepaste: ${team.pokepaste}`;
@@ -700,7 +804,7 @@ function handleMethod(method, params) {
       responseText += '\n\n';
     });
 
-    return { 
+    return {
       content: [{ type: 'text', text: responseText }],
       structuredContent: { total: results.length, teams: finalTeams },
       _meta: { 'openai/outputTemplate': 'ui://widgets/team-finder' }
