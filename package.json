@@ -1,15 +1,14 @@
 {
   "name": "vgc-team-gpt",
   "version": "2.0.0",
-  "description": "VGC Team Finder - Production MCP Server for Pokemon VGC team data",
-  "main": "src/index.js",
+  "description": "VGC Team Finder - MCP Server for Pokemon VGC team data",
+  "main": "index.js",
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
-    "test": "node src/test.js",
+    "start": "node index.js",
+    "dev": "node --watch index.js",
     "health": "curl -s http://localhost:3000/health | jq"
   },
   "keywords": ["vgc", "pokemon", "mcp", "chatgpt", "competitive"],
@@ -18,9 +17,6 @@
   "dependencies": {
     "cors": "^2.8.5",
     "csv-parse": "^6.1.0",
-    "express": "^5.2.1",
-    "express-rate-limit": "^7.1.5",
-    "helmet": "^7.1.0",
-    "compression": "^1.7.4"
+    "express": "^5.2.1"
   }
 }

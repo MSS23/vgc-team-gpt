@@ -9,13 +9,6 @@ npm-debug.log*
 .env
 .env.local
 
-# Cloudflare tunnel credentials (sensitive)
-.cloudflared/*.json
-*.pem
-
-# Cloudflare executable (large binary, download separately)
-cloudflared.exe
-
 # OS files
 .DS_Store
 Thumbs.db
@@ -29,12 +22,5 @@ Thumbs.db
 *.temp
 data.csv
 
-# Claude Code
+# Claude Code local settings
 .claude/
-
-# Local files
-.local/
-nul
-start-local.bat
-start-permanent.bat
-cloudflared-config.yml
