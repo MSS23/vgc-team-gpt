@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vgc-teams": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://vgc-team-gpt.onrender.com/sse"]
+    }
+  }
+}
