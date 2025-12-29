@@ -1096,11 +1096,19 @@ const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
 
 app.get('/api/search', (req, res) => {
   const query = req.query.q || req.query.query || '';
+  const regulation = (req.query.regulation || '').toUpperCase();
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
   const searchTerms = query.toLowerCase().split(/\s+and\s+/).map(t => t.trim()).filter(t => t);
 
-  let results = teams.filter(team => {
+  let results = teams;
+
+  // Filter by regulation if specified
+  if (regulation) {
+    results = results.filter(t => t.regulation === regulation);
+  }
+
+  results = results.filter(team => {
     const pokemonNamesNormalized = team.pokemon.map(p => normalize(p.name));
     const searchBlob = [team.player, team.event, team.description, ...team.pokemon.map(p => p.name)].join(' ').toLowerCase();
 
@@ -1118,15 +1126,20 @@ app.get('/api/search', (req, res) => {
 
 app.get('/api/random', (req, res) => {
   const pokemon = req.query.pokemon;
+  const regulation = (req.query.regulation || '').toUpperCase();
   let pool = teams;
+
+  if (regulation) {
+    pool = pool.filter(t => t.regulation === regulation);
+  }
 
   if (pokemon) {
     const pokemonNorm = normalize(pokemon);
-    pool = teams.filter(team => team.pokemon.some(p => normalize(p.name).includes(pokemonNorm)));
+    pool = pool.filter(team => team.pokemon.some(p => normalize(p.name).includes(pokemonNorm)));
   }
 
   if (pool.length === 0) {
-    return res.json({ error: 'No teams found' });
+    return res.status(404).json({ error: 'No teams found' });
   }
 
   const team = pool[Math.floor(Math.random() * pool.length)];
@@ -1145,9 +1158,15 @@ app.get('/api/rental/:code', (req, res) => {
 
 app.get('/api/usage', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+  const regulation = (req.query.regulation || '').toUpperCase();
   const usage = {};
 
-  teams.forEach(team => {
+  let pool = teams;
+  if (regulation) {
+    pool = pool.filter(t => t.regulation === regulation);
+  }
+
+  pool.forEach(team => {
     team.pokemon.forEach(p => {
       if (p.name) usage[p.name] = (usage[p.name] || 0) + 1;
     });
@@ -1156,16 +1175,21 @@ app.get('/api/usage', (req, res) => {
   const sorted = Object.entries(usage)
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map(([name, count]) => ({ name, count, percentage: ((count / teams.length) * 100).toFixed(1) }));
+    .map(([name, count]) => ({ name, count, percentage: ((count / pool.length) * 100).toFixed(1) }));
 
-  res.json({ totalTeams: teams.length, usage: sorted });
+  res.json({ totalTeams: pool.length, usage: sorted });
 });
 
 app.get('/api/rentals', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
   const pokemon = req.query.pokemon;
+  const regulation = (req.query.regulation || '').toUpperCase();
 
-  let results = teams.filter(t => t.rentalCode && t.rentalCode !== 'None');
+  let results = teams.filter(t => t.rentalCode && t.rentalCode !== 'None' && t.rentalCode.length > 0);
+
+  if (regulation) {
+    results = results.filter(t => t.regulation === regulation);
+  }
 
   if (pokemon) {
     const pokemonNorm = normalize(pokemon);
@@ -1173,6 +1197,97 @@ app.get('/api/rentals', (req, res) => {
   }
 
   results = results.sort((a, b) => b.dateValue - a.dateValue).slice(0, limit);
+  res.json({ total: results.length, teams: results });
+});
+
+// Additional REST API endpoints
+app.get('/api/regulations', (req, res) => {
+  const regCounts = {};
+  teams.forEach(t => {
+    regCounts[t.regulation] = (regCounts[t.regulation] || 0) + 1;
+  });
+
+  const regulations = Object.entries(regCounts)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, count]) => ({ name, count }));
+
+  res.json({ totalTeams: teams.length, regulations });
+});
+
+app.get('/api/teammates/:pokemon', (req, res) => {
+  const pokemon = req.params.pokemon;
+  const limit = Math.min(parseInt(req.query.limit) || 10, 20);
+
+  const pokemonNorm = normalize(pokemon);
+  const teamsWithPokemon = teams.filter(team =>
+    team.pokemon.some(p => normalize(p.name).includes(pokemonNorm))
+  );
+
+  if (teamsWithPokemon.length === 0) {
+    return res.status(404).json({ error: `No teams found with ${pokemon}` });
+  }
+
+  const teammates = {};
+  teamsWithPokemon.forEach(team => {
+    team.pokemon.forEach(p => {
+      const name = p.name.trim();
+      if (name && !normalize(name).includes(pokemonNorm)) {
+        teammates[name] = (teammates[name] || 0) + 1;
+      }
+    });
+  });
+
+  const sorted = Object.entries(teammates)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name, count]) => ({ name, count, percentage: ((count / teamsWithPokemon.length) * 100).toFixed(1) }));
+
+  res.json({ pokemon, totalTeams: teamsWithPokemon.length, teammates: sorted });
+});
+
+app.get('/api/items/:pokemon', (req, res) => {
+  const pokemon = req.params.pokemon;
+
+  const pokemonNorm = normalize(pokemon);
+  const items = {};
+  let totalCount = 0;
+
+  teams.forEach(team => {
+    team.pokemon.forEach(p => {
+      if (normalize(p.name).includes(pokemonNorm)) {
+        const item = p.item.trim();
+        if (item && item !== 'None' && item !== 'Unknown') {
+          items[item] = (items[item] || 0) + 1;
+          totalCount++;
+        }
+      }
+    });
+  });
+
+  if (totalCount === 0) {
+    return res.status(404).json({ error: `No data found for ${pokemon}` });
+  }
+
+  const sorted = Object.entries(items)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({ name, count, percentage: ((count / totalCount) * 100).toFixed(1) }));
+
+  res.json({ pokemon, totalCount, items: sorted });
+});
+
+app.get('/api/player/:name', (req, res) => {
+  const player = req.params.name;
+  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+
+  const playerNorm = normalize(player);
+  const results = teams.filter(team =>
+    normalize(team.player).includes(playerNorm)
+  ).sort((a, b) => b.dateValue - a.dateValue).slice(0, limit);
+
+  if (results.length === 0) {
+    return res.status(404).json({ error: `No teams found for player "${player}"` });
+  }
+
   res.json({ total: results.length, teams: results });
 });
 
