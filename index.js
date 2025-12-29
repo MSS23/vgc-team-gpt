@@ -769,10 +769,199 @@ app.get('/', (req, res) => {
     teamsLoaded: teams.length,
     endpoints: {
       sse: '/sse',
-      health: '/health'
+      health: '/health',
+      openapi: '/.well-known/openapi.yaml'
     },
     tools: TOOLS.map(t => t.name)
   });
+});
+
+// OpenAPI specification for ChatGPT Actions
+app.get('/.well-known/openapi.yaml', (req, res) => {
+  res.setHeader('Content-Type', 'text/yaml');
+  res.send(`openapi: 3.1.0
+info:
+  title: VGC Team Finder API
+  description: Search VGC Pokemon teams, find rental codes, check usage statistics, and get team building inspiration.
+  version: 1.0.0
+servers:
+  - url: https://vgc-team-gpt.onrender.com
+paths:
+  /api/search:
+    get:
+      operationId: searchTeams
+      summary: Search VGC teams by Pokemon, player, event, or item
+      description: Search for teams containing specific Pokemon, by player name, event, or items. Use "and" to combine multiple Pokemon (e.g., "Incineroar and Flutter Mane").
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query - Pokemon names (use "and" for multiple), player name, event, or item
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+          description: Number of results to return
+      responses:
+        '200':
+          description: List of matching teams
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  teams:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Team'
+  /api/random:
+    get:
+      operationId: getRandomTeam
+      summary: Get a random VGC team
+      description: Get a random team for inspiration. Optionally filter by Pokemon.
+      parameters:
+        - name: pokemon
+          in: query
+          schema:
+            type: string
+          description: Optional Pokemon to filter by
+      responses:
+        '200':
+          description: A random team
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team:
+                    $ref: '#/components/schemas/Team'
+  /api/rental/{code}:
+    get:
+      operationId: getRentalTeam
+      summary: Look up a team by rental code
+      description: Find a specific team using its rental code.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The rental code (e.g., "6NDSP1")
+      responses:
+        '200':
+          description: The team with that rental code
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team:
+                    $ref: '#/components/schemas/Team'
+  /api/usage:
+    get:
+      operationId: getPokemonUsage
+      summary: Get Pokemon usage statistics
+      description: Shows the most popular Pokemon across all teams in the database.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+          description: Number of Pokemon to show
+      responses:
+        '200':
+          description: Usage statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalTeams:
+                    type: integer
+                  usage:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                        percentage:
+                          type: string
+  /api/rentals:
+    get:
+      operationId: getRentalTeams
+      summary: Get teams with rental codes
+      description: Find teams that have rental codes available.
+      parameters:
+        - name: pokemon
+          in: query
+          schema:
+            type: string
+          description: Optional Pokemon to filter by
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+          description: Number of results
+      responses:
+        '200':
+          description: List of rental teams
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  teams:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Team'
+components:
+  schemas:
+    Team:
+      type: object
+      properties:
+        teamId:
+          type: string
+        description:
+          type: string
+        player:
+          type: string
+        pokemon:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              item:
+                type: string
+              sprite:
+                type: string
+        pokepaste:
+          type: string
+        rentalCode:
+          type: string
+        date:
+          type: string
+        event:
+          type: string
+        rank:
+          type: string
+`);
 });
 
 app.get('/sse', (req, res) => {
