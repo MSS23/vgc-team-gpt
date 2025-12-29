@@ -3,6 +3,22 @@ const cors = require('cors');
 const { parse } = require('csv-parse/sync');
 const fs = require('fs');
 const path = require('path');
+
+// MCP-UI Templates for Goose
+const {
+  searchTeamsHTML,
+  randomTeamHTML,
+  pokemonUsageHTML,
+  rentalTeamsHTML,
+  pokemonTeammatesHTML,
+  pokemonItemsHTML,
+  playerTeamsHTML,
+  tournamentTeamsHTML,
+  rentalCodeTeamHTML,
+  itemUsageHTML,
+  regulationsHTML
+} = require('./lib/ui-templates');
+
 const app = express();
 
 app.use(cors({ origin: '*' }));
@@ -321,22 +337,14 @@ const TOOLS = [
 
 function handleMethod(method, params) {
   if (method === 'initialize') {
-    return { 
-      protocolVersion: '2024-11-05', 
-      capabilities: { 
+    return {
+      protocolVersion: '2024-11-05',
+      capabilities: {
         tools: {},
-        resources: {
-          list: [{ uri: 'ui://widgets/team-finder', name: 'VGC Team Finder UI', mimeType: 'text/html+skybridge' }]
-        }
-      }, 
-      serverInfo: { name: 'vgc-team-finder', version: '1.0.0' } 
+        resources: {}
+      },
+      serverInfo: { name: 'vgc-team-finder', version: '2.0.0' }
     };
-  }
-  if (method === 'resources/get' && params?.uri === 'ui://widgets/team-finder') {
-    const fs = require('fs');
-    const path = require('path');
-    const widgetHtml = fs.readFileSync(path.join(__dirname, 'widget.html'), 'utf8');
-    return { contents: [{ uri: 'ui://widgets/team-finder', mimeType: 'text/html+skybridge', text: widgetHtml }] };
   }
   if (method === 'tools/list') {
     return { tools: TOOLS };
@@ -375,7 +383,17 @@ function handleMethod(method, params) {
     }
 
     return {
-      content: [{ type: 'text', text: responseText }],
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/random_team',
+            mimeType: 'text/html',
+            text: randomTeamHTML(team, pokemon)
+          }
+        }
+      ],
       structuredContent: { team }
     };
   }
@@ -404,9 +422,21 @@ function handleMethod(method, params) {
       responseText += `${i + 1}. **${name}** — ${count} teams (${percentage}%)\n`;
     });
 
+    const usageData = sorted.map(([name, count]) => ({ name, count, percentage: ((count / teams.length) * 100).toFixed(1) }));
+
     return {
-      content: [{ type: 'text', text: responseText }],
-      structuredContent: { totalTeams: teams.length, usage: sorted.map(([name, count]) => ({ name, count, percentage: ((count / teams.length) * 100).toFixed(1) })) }
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/get_pokemon_usage',
+            mimeType: 'text/html',
+            text: pokemonUsageHTML(usageData, teams.length)
+          }
+        }
+      ],
+      structuredContent: { totalTeams: teams.length, usage: usageData }
     };
   }
 
@@ -436,9 +466,21 @@ function handleMethod(method, params) {
       responseText += `${i + 1}. **${name}** — ${count} uses (${percentage}%)\n`;
     });
 
+    const itemUsageData = sorted.map(([name, count]) => ({ name, count, percentage: ((count / totalItems) * 100).toFixed(1) }));
+
     return {
-      content: [{ type: 'text', text: responseText }],
-      structuredContent: { totalItems, usage: sorted.map(([name, count]) => ({ name, count, percentage: ((count / totalItems) * 100).toFixed(1) })) }
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/get_item_usage',
+            mimeType: 'text/html',
+            text: itemUsageHTML(itemUsageData, totalItems)
+          }
+        }
+      ],
+      structuredContent: { totalItems, usage: itemUsageData }
     };
   }
 
@@ -465,7 +507,17 @@ function handleMethod(method, params) {
     responseText += `🔗 Pokepaste: ${team.pokepaste}`;
 
     return {
-      content: [{ type: 'text', text: responseText }],
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/get_team_by_rental',
+            mimeType: 'text/html',
+            text: rentalCodeTeamHTML(team, rentalCode)
+          }
+        }
+      ],
       structuredContent: { team }
     };
   }
@@ -504,7 +556,17 @@ function handleMethod(method, params) {
     });
 
     return {
-      content: [{ type: 'text', text: responseText }],
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/search_pokemon_with_item',
+            mimeType: 'text/html',
+            text: searchTeamsHTML(results, `${pokemon} + ${item}`, results.length)
+          }
+        }
+      ],
       structuredContent: { total: results.length, teams: results }
     };
   }
@@ -547,9 +609,21 @@ function handleMethod(method, params) {
       responseText += `${i + 1}. **${name}** — ${count} teams (${percentage}%)\n`;
     });
 
+    const teammatesData = sorted.map(([name, count]) => ({ name, count, percentage: ((count / teamsWithPokemon.length) * 100).toFixed(1) }));
+
     return {
-      content: [{ type: 'text', text: responseText }],
-      structuredContent: { pokemon, totalTeams: teamsWithPokemon.length, teammates: sorted.map(([name, count]) => ({ name, count, percentage: ((count / teamsWithPokemon.length) * 100).toFixed(1) })) }
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/get_pokemon_teammates',
+            mimeType: 'text/html',
+            text: pokemonTeammatesHTML(pokemon, teammatesData, teamsWithPokemon.length)
+          }
+        }
+      ],
+      structuredContent: { pokemon, totalTeams: teamsWithPokemon.length, teammates: teammatesData }
     };
   }
 
@@ -590,9 +664,21 @@ function handleMethod(method, params) {
       responseText += `${i + 1}. **${name}** — ${count} (${percentage}%)\n`;
     });
 
+    const itemsData = sorted.map(([name, count]) => ({ name, count, percentage: ((count / totalCount) * 100).toFixed(1) }));
+
     return {
-      content: [{ type: 'text', text: responseText }],
-      structuredContent: { pokemon, totalCount, items: sorted.map(([name, count]) => ({ name, count, percentage: ((count / totalCount) * 100).toFixed(1) })) }
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/get_pokemon_items',
+            mimeType: 'text/html',
+            text: pokemonItemsHTML(pokemon, itemsData, totalCount)
+          }
+        }
+      ],
+      structuredContent: { pokemon, totalCount, items: itemsData }
     };
   }
 
@@ -626,7 +712,17 @@ function handleMethod(method, params) {
     });
 
     return {
-      content: [{ type: 'text', text: responseText }],
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/get_rental_teams',
+            mimeType: 'text/html',
+            text: rentalTeamsHTML(results, pokemon)
+          }
+        }
+      ],
       structuredContent: { total: results.length, teams: results }
     };
   }
@@ -660,7 +756,17 @@ function handleMethod(method, params) {
     });
 
     return {
-      content: [{ type: 'text', text: responseText }],
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/get_tournament_teams',
+            mimeType: 'text/html',
+            text: tournamentTeamsHTML(event, results)
+          }
+        }
+      ],
       structuredContent: { total: results.length, teams: results }
     };
   }
@@ -694,7 +800,17 @@ function handleMethod(method, params) {
     });
 
     return {
-      content: [{ type: 'text', text: responseText }],
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/get_player_teams',
+            mimeType: 'text/html',
+            text: playerTeamsHTML(player, results)
+          }
+        }
+      ],
       structuredContent: { total: results.length, teams: results }
     };
   }
@@ -717,9 +833,21 @@ function handleMethod(method, params) {
       responseText += `**Regulation ${reg}** — ${count} teams\n`;
     });
 
+    const regulationsData = sorted.map(([name, count]) => ({ name, count }));
+
     return {
-      content: [{ type: 'text', text: responseText }],
-      structuredContent: { totalTeams: teams.length, regulations: sorted.map(([name, count]) => ({ name, count })) }
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/get_regulations',
+            mimeType: 'text/html',
+            text: regulationsHTML(regulationsData, teams.length)
+          }
+        }
+      ],
+      structuredContent: { totalTeams: teams.length, regulations: regulationsData }
     };
   }
 
@@ -809,9 +937,18 @@ function handleMethod(method, params) {
     });
 
     return {
-      content: [{ type: 'text', text: responseText }],
-      structuredContent: { total: results.length, teams: finalTeams },
-      _meta: { 'openai/outputTemplate': 'ui://widgets/team-finder' }
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/search_teams',
+            mimeType: 'text/html',
+            text: searchTeamsHTML(finalTeams, q, results.length)
+          }
+        }
+      ],
+      structuredContent: { total: results.length, teams: finalTeams }
     };
   }
   return { error: { code: -32601, message: 'Method not found' } };
