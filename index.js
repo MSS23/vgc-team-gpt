@@ -886,23 +886,35 @@ app.get('/.well-known/openapi.yaml', (req, res) => {
   res.send(`openapi: 3.1.0
 info:
   title: VGC Team Finder API
-  description: Search VGC Pokemon teams, find rental codes, check usage statistics, and get team building inspiration.
-  version: 1.0.0
+  description: |
+    Search 6000+ competitive Pokemon VGC teams across 8 regulations (J, I, H, G, F, E, D, C).
+    Find rental codes, check Pokemon usage statistics, discover teammates, and get team building inspiration.
+  version: 2.0.0
 servers:
   - url: https://vgc-team-gpt.onrender.com
 paths:
   /api/search:
     get:
       operationId: searchTeams
-      summary: Search VGC teams by Pokemon, player, event, or item
-      description: Search for teams containing specific Pokemon, by player name, event, or items. Use "and" to combine multiple Pokemon (e.g., "Incineroar and Flutter Mane").
+      summary: Search VGC teams
+      description: |
+        Search for teams by Pokemon, player name, event, or item.
+        Use "and" to combine multiple Pokemon (e.g., "Incineroar and Flutter Mane").
+        Filter by regulation to find teams from a specific format.
       parameters:
         - name: query
           in: query
           required: true
           schema:
             type: string
-          description: Search query - Pokemon names (use "and" for multiple), player name, event, or item
+          description: Search query - Pokemon names, player, event, item. Use "and" for multiple terms.
+          example: "Incineroar and Flutter Mane"
+        - name: regulation
+          in: query
+          schema:
+            type: string
+            enum: [J, I, H, G, F, E, D, C]
+          description: Filter by regulation (J is current, C is oldest)
         - name: limit
           in: query
           schema:
@@ -916,62 +928,56 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  total:
-                    type: integer
-                  teams:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Team'
+                $ref: '#/components/schemas/TeamSearchResponse'
   /api/random:
     get:
       operationId: getRandomTeam
       summary: Get a random VGC team
-      description: Get a random team for inspiration. Optionally filter by Pokemon.
+      description: Get a random team for inspiration. Filter by Pokemon or regulation.
       parameters:
         - name: pokemon
           in: query
           schema:
             type: string
-          description: Optional Pokemon to filter by
+          description: Filter to teams with this Pokemon
+        - name: regulation
+          in: query
+          schema:
+            type: string
+            enum: [J, I, H, G, F, E, D, C]
+          description: Filter by regulation
       responses:
         '200':
           description: A random team
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  team:
-                    $ref: '#/components/schemas/Team'
+                $ref: '#/components/schemas/SingleTeamResponse'
   /api/rental/{code}:
     get:
       operationId: getRentalTeam
       summary: Look up a team by rental code
-      description: Find a specific team using its rental code.
+      description: Find a specific team using its 6-character rental code.
       parameters:
         - name: code
           in: path
           required: true
           schema:
             type: string
-          description: The rental code (e.g., "6NDSP1")
+          description: The 6-character rental code
+          example: "HFFP8T"
       responses:
         '200':
           description: The team with that rental code
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  team:
-                    $ref: '#/components/schemas/Team'
+                $ref: '#/components/schemas/SingleTeamResponse'
   /api/usage:
     get:
       operationId: getPokemonUsage
       summary: Get Pokemon usage statistics
-      description: Shows the most popular Pokemon across all teams in the database.
+      description: Shows the most popular Pokemon across all teams. Filter by regulation.
       parameters:
         - name: limit
           in: query
@@ -980,38 +986,36 @@ paths:
             default: 20
             maximum: 100
           description: Number of Pokemon to show
+        - name: regulation
+          in: query
+          schema:
+            type: string
+            enum: [J, I, H, G, F, E, D, C]
+          description: Filter by regulation
       responses:
         '200':
           description: Usage statistics
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  totalTeams:
-                    type: integer
-                  usage:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        name:
-                          type: string
-                        count:
-                          type: integer
-                        percentage:
-                          type: string
+                $ref: '#/components/schemas/UsageResponse'
   /api/rentals:
     get:
       operationId: getRentalTeams
       summary: Get teams with rental codes
-      description: Find teams that have rental codes available.
+      description: Find teams that have rental codes available for immediate use in-game.
       parameters:
         - name: pokemon
           in: query
           schema:
             type: string
-          description: Optional Pokemon to filter by
+          description: Filter to rental teams with this Pokemon
+        - name: regulation
+          in: query
+          schema:
+            type: string
+            enum: [J, I, H, G, F, E, D, C]
+          description: Filter by regulation
         - name: limit
           in: query
           schema:
@@ -1025,16 +1029,106 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  total:
-                    type: integer
-                  teams:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Team'
+                $ref: '#/components/schemas/TeamSearchResponse'
+  /api/regulations:
+    get:
+      operationId: getRegulations
+      summary: Get available regulations
+      description: List all available regulations and team counts for each.
+      responses:
+        '200':
+          description: Regulation information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegulationsResponse'
+  /api/teammates/{pokemon}:
+    get:
+      operationId: getPokemonTeammates
+      summary: Get common teammates for a Pokemon
+      description: Find the most common Pokemon paired with the specified Pokemon.
+      parameters:
+        - name: pokemon
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Pokemon name to find teammates for
+          example: "Incineroar"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 20
+          description: Number of teammates to show
+      responses:
+        '200':
+          description: List of common teammates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeammatesResponse'
+  /api/items/{pokemon}:
+    get:
+      operationId: getPokemonItems
+      summary: Get common items for a Pokemon
+      description: Find the most common held items used on the specified Pokemon.
+      parameters:
+        - name: pokemon
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Pokemon name
+          example: "Flutter Mane"
+      responses:
+        '200':
+          description: List of common items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemsResponse'
+  /api/player/{name}:
+    get:
+      operationId: getPlayerTeams
+      summary: Get teams by player
+      description: Find all teams from a specific player.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Player name to search for
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 50
+          description: Number of results
+      responses:
+        '200':
+          description: Player's teams
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamSearchResponse'
 components:
   schemas:
+    Pokemon:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Pokemon name
+        item:
+          type: string
+          description: Held item
+        sprite:
+          type: string
+          description: URL to Pokemon sprite image
     Team:
       type: object
       properties:
@@ -1047,14 +1141,7 @@ components:
         pokemon:
           type: array
           items:
-            type: object
-            properties:
-              name:
-                type: string
-              item:
-                type: string
-              sprite:
-                type: string
+            $ref: '#/components/schemas/Pokemon'
         pokepaste:
           type: string
         rentalCode:
@@ -1065,6 +1152,89 @@ components:
           type: string
         rank:
           type: string
+        regulation:
+          type: string
+          description: VGC regulation (J, I, H, G, F, E, D, C)
+    TeamSearchResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        teams:
+          type: array
+          items:
+            $ref: '#/components/schemas/Team'
+    SingleTeamResponse:
+      type: object
+      properties:
+        team:
+          $ref: '#/components/schemas/Team'
+    UsageResponse:
+      type: object
+      properties:
+        totalTeams:
+          type: integer
+        usage:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+              percentage:
+                type: string
+    RegulationsResponse:
+      type: object
+      properties:
+        totalTeams:
+          type: integer
+        regulations:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+    TeammatesResponse:
+      type: object
+      properties:
+        pokemon:
+          type: string
+        totalTeams:
+          type: integer
+        teammates:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+              percentage:
+                type: string
+    ItemsResponse:
+      type: object
+      properties:
+        pokemon:
+          type: string
+        totalCount:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+              percentage:
+                type: string
 `);
 });
 
