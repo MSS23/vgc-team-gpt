@@ -16,13 +16,296 @@ const {
   tournamentTeamsHTML,
   rentalCodeTeamHTML,
   itemUsageHTML,
-  regulationsHTML
+  regulationsHTML,
+  recommendTeamsHTML
 } = require('./lib/ui-templates');
 
 const app = express();
 
 app.use(cors({ origin: '*' }));
 app.use(express.json());
+
+// ============================================
+// ABBREVIATION EXPANSION
+// Expand common VGC abbreviations to full names
+// so LLMs can pass shorthand and it still works
+// ============================================
+
+const POKEMON_ABBREVIATIONS = {
+  // Common nicknames
+  'incin': 'Incineroar',
+  'incineroar': 'Incineroar',
+  'rilla': 'Rillaboom',
+  'amoong': 'Amoonguss',
+  'fini': 'Tapu Fini',
+  'lele': 'Tapu Lele',
+  'koko': 'Tapu Koko',
+  'bulu': 'Tapu Bulu',
+  'lando': 'Landorus',
+  'lando-t': 'Landorus-Therian',
+  'landot': 'Landorus-Therian',
+  'thundy': 'Thundurus',
+  'thundy-i': 'Thundurus',
+  'thundy-t': 'Thundurus-Therian',
+  'torn': 'Tornadus',
+  'torn-i': 'Tornadus',
+  'torn-t': 'Tornadus-Therian',
+
+  // Shorthand
+  'kg': 'Kingambit',
+  'gambit': 'Kingambit',
+  'dnite': 'Dragonite',
+  'pult': 'Dragapult',
+  'ferro': 'Ferrothorn',
+  'gastro': 'Gastrodon',
+  'ttar': 'Tyranitar',
+  'chomp': 'Garchomp',
+  'caly': 'Calyrex',
+  'caly-s': 'Calyrex-Shadow',
+  'caly-i': 'Calyrex-Ice',
+  'calys': 'Calyrex-Shadow',
+  'calyi': 'Calyrex-Ice',
+  'shadow rider': 'Calyrex-Shadow',
+  'ice rider': 'Calyrex-Ice',
+  'zacian': 'Zacian',
+  'zacian-c': 'Zacian-Crowned',
+  'zamazenta': 'Zamazenta',
+  'kyogre': 'Kyogre',
+  'groudon': 'Groudon',
+  'pdon': 'Groudon',
+  'ogre': 'Kyogre',
+
+  // Gen 9 Pokemon
+  'flutter': 'Flutter Mane',
+  'fm': 'Flutter Mane',
+  'fluttermane': 'Flutter Mane',
+  'gouging': 'Gouging Fire',
+  'gf': 'Gouging Fire',
+  'gougingfire': 'Gouging Fire',
+  'raging': 'Raging Bolt',
+  'rb': 'Raging Bolt',
+  'ragingbolt': 'Raging Bolt',
+  'bolt': 'Raging Bolt',
+  'iron hands': 'Iron Hands',
+  'ih': 'Iron Hands',
+  'ironhands': 'Iron Hands',
+  'hands': 'Iron Hands',
+  'iron crown': 'Iron Crown',
+  'ic': 'Iron Crown',
+  'ironcrown': 'Iron Crown',
+  'crown': 'Iron Crown',
+  'iron boulder': 'Iron Boulder',
+  'ib': 'Iron Boulder',
+  'ironboulder': 'Iron Boulder',
+  'boulder': 'Iron Boulder',
+  'chien': 'Chien-Pao',
+  'cp': 'Chien-Pao',
+  'chienpao': 'Chien-Pao',
+  'pao': 'Chien-Pao',
+  'chi-yu': 'Chi-Yu',
+  'chiyu': 'Chi-Yu',
+  'chi yu': 'Chi-Yu',
+  'ting': 'Ting-Lu',
+  'tinglu': 'Ting-Lu',
+  'ting lu': 'Ting-Lu',
+  'wo': 'Wo-Chien',
+  'wochien': 'Wo-Chien',
+  'wo chien': 'Wo-Chien',
+  'urshifu': 'Urshifu',
+  'urshi': 'Urshifu',
+  'urshifu-r': 'Urshifu-Rapid-Strike',
+  'urshifu-s': 'Urshifu',
+  'rapid strike': 'Urshifu-Rapid-Strike',
+  'single strike': 'Urshifu',
+  'ogerpon': 'Ogerpon',
+  'ogerpon-h': 'Ogerpon-Hearthflame',
+  'ogerpon-w': 'Ogerpon-Wellspring',
+  'ogerpon-c': 'Ogerpon-Cornerstone',
+  'hearthflame': 'Ogerpon-Hearthflame',
+  'wellspring': 'Ogerpon-Wellspring',
+  'cornerstone': 'Ogerpon-Cornerstone',
+  'ursaluna': 'Ursaluna',
+  'bloodmoon': 'Ursaluna-Bloodmoon',
+  'bm ursaluna': 'Ursaluna-Bloodmoon',
+  'bmursaluna': 'Ursaluna-Bloodmoon',
+  'pelipper': 'Pelipper',
+  'peli': 'Pelipper',
+  'torkoal': 'Torkoal',
+  'tork': 'Torkoal',
+  'whimsicott': 'Whimsicott',
+  'whims': 'Whimsicott',
+  'grimm': 'Grimmsnarl',
+  'grimmsnarl': 'Grimmsnarl',
+  'arcanine': 'Arcanine',
+  'arc': 'Arcanine',
+  'arc-h': 'Arcanine-Hisui',
+  'hisui arc': 'Arcanine-Hisui',
+  'ghold': 'Gholdengo',
+  'gholdengo': 'Gholdengo',
+  'annihilape': 'Annihilape',
+  'ape': 'Annihilape',
+  'farigiraf': 'Farigiraf',
+  'giraffe': 'Farigiraf',
+  'indeedee': 'Indeedee',
+  'indeedee-f': 'Indeedee-F',
+  'indeedee-m': 'Indeedee',
+  'dondozo': 'Dondozo',
+  'dozo': 'Dondozo',
+  'tatsugiri': 'Tatsugiri',
+  'tatsu': 'Tatsugiri',
+  'palafin': 'Palafin',
+  'pala': 'Palafin',
+  'miraidon': 'Miraidon',
+  'mirai': 'Miraidon',
+  'koraidon': 'Koraidon',
+  'korai': 'Koraidon',
+  'terapagos': 'Terapagos',
+  'tera': 'Terapagos',
+  'pecharunt': 'Pecharunt',
+  'pech': 'Pecharunt',
+  'entei': 'Entei',
+  'raikou': 'Raikou',
+  'suicune': 'Suicune',
+  'cune': 'Suicune'
+};
+
+const ITEM_ABBREVIATIONS = {
+  // Common items
+  'av': 'Assault Vest',
+  'assault vest': 'Assault Vest',
+  'lo': 'Life Orb',
+  'life orb': 'Life Orb',
+  'cb': 'Choice Band',
+  'choice band': 'Choice Band',
+  'band': 'Choice Band',
+  'cs': 'Choice Specs',
+  'choice specs': 'Choice Specs',
+  'specs': 'Choice Specs',
+  'scarf': 'Choice Scarf',
+  'choice scarf': 'Choice Scarf',
+  'sash': 'Focus Sash',
+  'focus sash': 'Focus Sash',
+  'fs': 'Focus Sash',
+  'lefties': 'Leftovers',
+  'leftovers': 'Leftovers',
+  'lo': 'Life Orb',
+  'orb': 'Life Orb',
+  'sitrus': 'Sitrus Berry',
+  'sitrus berry': 'Sitrus Berry',
+  'lum': 'Lum Berry',
+  'lum berry': 'Lum Berry',
+  'berry': 'Sitrus Berry',
+  'be': 'Booster Energy',
+  'booster': 'Booster Energy',
+  'booster energy': 'Booster Energy',
+  'wp': 'Weakness Policy',
+  'weakness policy': 'Weakness Policy',
+  'policy': 'Weakness Policy',
+  'goggles': 'Safety Goggles',
+  'safety goggles': 'Safety Goggles',
+  'sg': 'Safety Goggles',
+  'eviolite': 'Eviolite',
+  'evio': 'Eviolite',
+  'boots': 'Heavy-Duty Boots',
+  'heavy duty boots': 'Heavy-Duty Boots',
+  'hdb': 'Heavy-Duty Boots',
+  'mental herb': 'Mental Herb',
+  'herb': 'Mental Herb',
+  'mh': 'Mental Herb',
+  'aguav': 'Aguav Berry',
+  'aguav berry': 'Aguav Berry',
+  'figy': 'Figy Berry',
+  'figy berry': 'Figy Berry',
+  'covert cloak': 'Covert Cloak',
+  'cloak': 'Covert Cloak',
+  'cc': 'Covert Cloak',
+  'loaded dice': 'Loaded Dice',
+  'dice': 'Loaded Dice',
+  'ld': 'Loaded Dice',
+  'clear amulet': 'Clear Amulet',
+  'amulet': 'Clear Amulet',
+  'ca': 'Clear Amulet',
+  'mirror herb': 'Mirror Herb',
+  'mirror': 'Mirror Herb',
+  'shuca': 'Shuca Berry',
+  'shuca berry': 'Shuca Berry',
+  'yache': 'Yache Berry',
+  'yache berry': 'Yache Berry',
+  'chople': 'Chople Berry',
+  'chople berry': 'Chople Berry',
+  'rocky helmet': 'Rocky Helmet',
+  'helmet': 'Rocky Helmet',
+  'rh': 'Rocky Helmet',
+  'throat spray': 'Throat Spray',
+  'spray': 'Throat Spray',
+  'ts': 'Throat Spray',
+  'terrain extender': 'Terrain Extender',
+  'extender': 'Terrain Extender',
+  'te': 'Terrain Extender',
+  'protective pads': 'Protective Pads',
+  'pads': 'Protective Pads',
+  'pp': 'Protective Pads'
+};
+
+// ============================================
+// PLAYSTYLE & ARCHETYPE DETECTION
+// Used for recommend_teams tool
+// ============================================
+
+const PLAYSTYLE_KEYWORDS = {
+  // Offensive archetypes
+  'hyper offense': ['hyper offense', 'hyper', 'aggressive', 'all-out', 'glass cannon'],
+  'offense': ['offense', 'offensive', 'sweeper', 'attacker'],
+
+  // Defensive/Balanced
+  'balance': ['balance', 'balanced', 'bulky balance'],
+  'bulky': ['bulky', 'defensive', 'tank', 'wall', 'bulk'],
+  'stall': ['stall', 'defensive wall'],
+
+  // Weather
+  'rain': ['rain', 'drizzle', 'rain team'],
+  'sun': ['sun', 'drought', 'sun team'],
+  'sand': ['sand', 'sandstorm', 'sand team'],
+  'snow': ['snow', 'hail', 'aurora veil'],
+
+  // Speed control
+  'trick room': ['trick room', 'tr ', 'slow mode'],
+  'tailwind': ['tailwind', 'speed control'],
+
+  // Specific strategies
+  'setup': ['setup', 'boost', 'calm mind', 'swords dance', 'nasty plot'],
+  'redirection': ['follow me', 'rage powder', 'redirection'],
+  'terrain': ['terrain', 'psychic terrain', 'grassy terrain', 'electric terrain']
+};
+
+// Pokemon that indicate specific archetypes
+const ARCHETYPE_POKEMON = {
+  'rain': ['Kyogre', 'Pelipper', 'Tornadus', 'Urshifu-Rapid-Strike', 'Palafin', 'Barraskewda'],
+  'sun': ['Groudon', 'Torkoal', 'Koraidon', 'Gouging Fire', 'Walking Wake', 'Venusaur'],
+  'trick room': ['Porygon2', 'Dusclops', 'Hatterene', 'Indeedee-F', 'Armarouge', 'Ursaluna', 'Torkoal', 'Cresselia'],
+  'hyper offense': ['Flutter Mane', 'Chien-Pao', 'Chi-Yu', 'Miraidon', 'Calyrex-Shadow', 'Iron Bundle'],
+  'balance': ['Incineroar', 'Rillaboom', 'Amoonguss', 'Landorus-Therian', 'Farigiraf'],
+  'sand': ['Tyranitar', 'Excadrill', 'Garchomp'],
+  'tailwind': ['Tornadus', 'Whimsicott', 'Talonflame', 'Murkrow']
+};
+
+/**
+ * Expand Pokemon abbreviation to full name
+ */
+function expandPokemonName(name) {
+  if (!name) return name;
+  const lower = name.toLowerCase().trim();
+  return POKEMON_ABBREVIATIONS[lower] || name;
+}
+
+/**
+ * Expand item abbreviation to full name
+ */
+function expandItemName(name) {
+  if (!name) return name;
+  const lower = name.toLowerCase().trim();
+  return ITEM_ABBREVIATIONS[lower] || name;
+}
 
 let teams = [];
 
@@ -332,6 +615,30 @@ const TOOLS = [
       },
       required: ['player']
     }
+  },
+  {
+    name: 'recommend_teams',
+    description: 'Get team recommendations based on your playstyle or Pokemon you enjoy. Describe what kind of player you are (e.g., "I like hyper offense", "I prefer trick room", "I enjoy rain teams") or mention Pokemon you had fun with (e.g., "I liked teams with Entei and Ogerpon", "the teams I enjoyed most had Flutter Mane").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        description: {
+          type: 'string',
+          description: 'Describe your playstyle preferences or Pokemon you enjoy'
+        },
+        regulation: {
+          type: 'string',
+          description: 'Optional: Filter to specific regulation (J, I, H, G, F, E, D, C)'
+        },
+        limit: {
+          type: 'integer',
+          description: 'Number of recommendations (default 10)',
+          minimum: 1,
+          maximum: 50
+        }
+      },
+      required: ['description']
+    }
   }
 ];
 
@@ -354,7 +661,8 @@ function handleMethod(method, params) {
 
   // Tool: random_team
   if (method === 'tools/call' && params?.name === 'random_team') {
-    const pokemon = params.arguments?.pokemon;
+    const pokemonRaw = params.arguments?.pokemon;
+    const pokemon = pokemonRaw ? expandPokemonName(pokemonRaw) : null;
     let pool = teams;
 
     if (pokemon) {
@@ -524,9 +832,14 @@ function handleMethod(method, params) {
 
   // Tool: search_pokemon_with_item
   if (method === 'tools/call' && params?.name === 'search_pokemon_with_item') {
-    const pokemon = params.arguments?.pokemon || '';
-    const item = params.arguments?.item || '';
+    // Expand abbreviations (e.g., "Incin" -> "Incineroar", "AV" -> "Assault Vest")
+    const pokemonRaw = params.arguments?.pokemon || '';
+    const itemRaw = params.arguments?.item || '';
+    const pokemon = expandPokemonName(pokemonRaw);
+    const item = expandItemName(itemRaw);
     const limit = Math.min(params.arguments?.limit || 20, 100);
+
+    console.log(`[search_pokemon_with_item] Input: "${pokemonRaw}" + "${itemRaw}" -> Expanded: "${pokemon}" + "${item}"`);
 
     if (!pokemon || !item) {
       return { content: [{ type: 'text', text: 'Please provide both a Pokemon and an item.' }] };
@@ -573,7 +886,8 @@ function handleMethod(method, params) {
 
   // Tool: get_pokemon_teammates
   if (method === 'tools/call' && params?.name === 'get_pokemon_teammates') {
-    const pokemon = params.arguments?.pokemon || '';
+    const pokemonRaw = params.arguments?.pokemon || '';
+    const pokemon = expandPokemonName(pokemonRaw);
     const limit = Math.min(params.arguments?.limit || 10, 20);
 
     if (!pokemon) {
@@ -629,7 +943,8 @@ function handleMethod(method, params) {
 
   // Tool: get_pokemon_items
   if (method === 'tools/call' && params?.name === 'get_pokemon_items') {
-    const pokemon = params.arguments?.pokemon || '';
+    const pokemonRaw = params.arguments?.pokemon || '';
+    const pokemon = expandPokemonName(pokemonRaw);
 
     if (!pokemon) {
       return { content: [{ type: 'text', text: 'Please provide a Pokemon name.' }] };
@@ -684,7 +999,8 @@ function handleMethod(method, params) {
 
   // Tool: get_rental_teams
   if (method === 'tools/call' && params?.name === 'get_rental_teams') {
-    const pokemon = params.arguments?.pokemon;
+    const pokemonRaw = params.arguments?.pokemon;
+    const pokemon = pokemonRaw ? expandPokemonName(pokemonRaw) : null;
     const limit = Math.min(params.arguments?.limit || 20, 100);
 
     let results = teams.filter(t => t.rentalCode && t.rentalCode !== 'None' && t.rentalCode.length > 0);
@@ -853,21 +1169,41 @@ function handleMethod(method, params) {
 
   // Tool: search_teams
   if (method === 'tools/call' && params?.name === 'search_teams') {
-    const q = (params.arguments?.query || '').toLowerCase();
+    let q = (params.arguments?.query || '').toLowerCase();
     const regulation = (params.arguments?.regulation || '').toUpperCase();
     const limit = Math.min(params.arguments?.limit || 50, 500);
     const sort = params.arguments?.sort || 'recent';
+
+    // Strip common filler words/phrases from natural language queries
+    const fillerPatterns = [
+      /^(find|search|show|get|give|list|display)\s+(me\s+)?(all\s+)?(the\s+)?/i,
+      /^(pokemon\s+)?(vgc\s+)?(teams?\s+)?(with|containing|using|that\s+have|that\s+use|featuring)\s+/i,
+      /^(what|which)\s+(are\s+)?(the\s+)?(pokemon\s+)?(vgc\s+)?(teams?\s+)?(with|containing|using)\s+/i,
+      /\s+(teams?|pokemon)$/i
+    ];
+
+    for (const pattern of fillerPatterns) {
+      q = q.replace(pattern, '');
+    }
+    q = q.trim();
 
     console.log('Total teams in database:', teams.length);
     console.log('Search query:', q);
     console.log('Regulation filter:', regulation || 'all');
 
     // Split by "and" first to get separate Pokemon/terms, then trim
+    // Also expand abbreviations (e.g., "KG" -> "Kingambit", "Incin" -> "Incineroar")
     const searchTerms = q.split(/\s+and\s+/)
       .map(t => t.trim())
-      .filter(t => t.length > 0);
+      .filter(t => t.length > 0)
+      .map(t => {
+        // Try to expand as Pokemon abbreviation first
+        const expanded = expandPokemonName(t);
+        // If it expanded, use that; otherwise keep original
+        return expanded !== t ? expanded : t;
+      });
 
-    console.log('Search terms:', searchTerms);
+    console.log('Search terms (after abbreviation expansion):', searchTerms);
 
     // Start with regulation filter if specified
     let pool = teams;
@@ -951,6 +1287,175 @@ function handleMethod(method, params) {
       structuredContent: { total: results.length, teams: finalTeams }
     };
   }
+
+  // Tool: recommend_teams
+  if (method === 'tools/call' && params?.name === 'recommend_teams') {
+    const userDesc = (params.arguments?.description || '').toLowerCase();
+    const regulation = (params.arguments?.regulation || '').toUpperCase();
+    const limit = Math.min(params.arguments?.limit || 10, 50);
+
+    console.log(`[recommend_teams] User description: "${userDesc}"`);
+
+    // Extract Pokemon mentions from user description
+    const mentionedPokemon = new Set();
+
+    // Check against Pokemon abbreviations
+    for (const [abbrev, fullName] of Object.entries(POKEMON_ABBREVIATIONS)) {
+      // Only match if it's a word boundary match (not partial matches)
+      const regex = new RegExp(`\\b${abbrev.replace(/[-\s]/g, '[-\\s]?')}\\b`, 'i');
+      if (regex.test(userDesc)) {
+        mentionedPokemon.add(fullName);
+      }
+    }
+
+    // Also check for full Pokemon names from ARCHETYPE_POKEMON
+    for (const pokemonList of Object.values(ARCHETYPE_POKEMON)) {
+      for (const pokemon of pokemonList) {
+        if (userDesc.includes(pokemon.toLowerCase())) {
+          mentionedPokemon.add(pokemon);
+        }
+      }
+    }
+
+    // Detect playstyle keywords
+    const detectedArchetypes = new Set();
+    for (const [archetype, keywords] of Object.entries(PLAYSTYLE_KEYWORDS)) {
+      if (keywords.some(kw => userDesc.includes(kw.toLowerCase()))) {
+        detectedArchetypes.add(archetype);
+      }
+    }
+
+    // Also detect archetype from mentioned Pokemon
+    for (const pokemon of mentionedPokemon) {
+      for (const [archetype, pokemonList] of Object.entries(ARCHETYPE_POKEMON)) {
+        if (pokemonList.includes(pokemon)) {
+          detectedArchetypes.add(archetype);
+        }
+      }
+    }
+
+    const mentionedArray = [...mentionedPokemon];
+    const archetypeArray = [...detectedArchetypes];
+
+    console.log(`[recommend_teams] Detected Pokemon: ${mentionedArray.join(', ')}`);
+    console.log(`[recommend_teams] Detected archetypes: ${archetypeArray.join(', ')}`);
+
+    // Start with all teams, optionally filter by regulation
+    let pool = teams;
+    if (regulation) {
+      pool = pool.filter(t => t.regulation === regulation);
+    }
+
+    // Score each team based on matches
+    const scoredTeams = pool.map(team => {
+      let score = 0;
+      const matchReasons = [];
+
+      const teamPokemonNames = team.pokemon.map(p => p.name);
+      const teamDescLower = team.description.toLowerCase();
+
+      // Score for mentioned Pokemon (highest weight)
+      for (const pokemon of mentionedArray) {
+        const pokemonNorm = normalize(pokemon);
+        if (teamPokemonNames.some(p => normalize(p).includes(pokemonNorm))) {
+          score += 10;
+          matchReasons.push(`Has ${pokemon}`);
+        }
+      }
+
+      // Score for archetype keywords in team description
+      for (const archetype of archetypeArray) {
+        if (teamDescLower.includes(archetype)) {
+          score += 5;
+          matchReasons.push(`${archetype} team`);
+        }
+      }
+
+      // Score for archetype-indicating Pokemon on team
+      for (const archetype of archetypeArray) {
+        const archetypePokemon = ARCHETYPE_POKEMON[archetype] || [];
+        for (const pokemon of archetypePokemon) {
+          if (teamPokemonNames.some(p => normalize(p).includes(normalize(pokemon)))) {
+            score += 3;
+            if (!matchReasons.some(r => r.includes(pokemon))) {
+              matchReasons.push(`Has ${pokemon} (${archetype})`);
+            }
+          }
+        }
+      }
+
+      // Bonus for having rental code (easier to try)
+      if (team.rentalCode && team.rentalCode !== 'None' && team.rentalCode.length > 0) {
+        score += 2;
+      }
+
+      // Slight recency bonus
+      if (team.dateValue) {
+        const ageInDays = (Date.now() - team.dateValue) / (1000 * 60 * 60 * 24);
+        if (ageInDays < 30) score += 1;
+      }
+
+      return { team, score, matchReasons };
+    });
+
+    // Filter to teams with score > 0, sort by score descending
+    const results = scoredTeams
+      .filter(t => t.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    if (results.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No teams found matching your preferences. Try describing your playstyle differently (e.g., "rain teams", "hyper offense", "trick room") or mention specific Pokemon you enjoy (e.g., "Entei", "Flutter Mane").`
+        }]
+      };
+    }
+
+    // Build response
+    const archetypeText = archetypeArray.length > 0
+      ? `Detected playstyle: **${archetypeArray.join(', ')}**\n`
+      : '';
+    const pokemonText = mentionedArray.length > 0
+      ? `Looking for teams with: **${mentionedArray.join(', ')}**\n`
+      : '';
+
+    let responseText = `🎯 **Team Recommendations**\n\n${archetypeText}${pokemonText}\n`;
+
+    results.forEach(({ team, matchReasons }) => {
+      const pokemonList = team.pokemon.map(p => `${p.name} (${p.item})`).join(' / ');
+      responseText += `**${team.teamId}** [Reg ${team.regulation}] — ${team.player}\n`;
+      responseText += `📝 ${team.description}\n`;
+      responseText += `✨ Match: ${matchReasons.slice(0, 3).join(', ')}\n`;
+      responseText += `🎮 ${pokemonList}\n`;
+      if (team.rentalCode && team.rentalCode !== 'None') {
+        responseText += `🎯 **RENTAL: ${team.rentalCode}**\n`;
+      }
+      responseText += `📋 ${team.pokepaste}\n\n`;
+    });
+
+    return {
+      content: [
+        { type: 'text', text: responseText },
+        {
+          type: 'resource',
+          resource: {
+            uri: 'ui://vgc-teams/recommend_teams',
+            mimeType: 'text/html',
+            text: recommendTeamsHTML(results.map(r => r.team), archetypeArray, mentionedArray, results.length)
+          }
+        }
+      ],
+      structuredContent: {
+        total: results.length,
+        archetypes: archetypeArray,
+        pokemon: mentionedArray,
+        teams: results.map(r => ({ ...r.team, matchReasons: r.matchReasons, score: r.score }))
+      }
+    };
+  }
+
   return { error: { code: -32601, message: 'Method not found' } };
 }
 
@@ -1010,10 +1515,11 @@ app.get('/validate', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     name: 'VGC Team Finder MCP Server',
-    version: '1.0.0',
+    version: '2.0.0',
     teamsLoaded: teams.length,
     endpoints: {
-      sse: '/sse',
+      sse: '/sse (Goose/Claude Desktop)',
+      mcpInspector: '/mcp-sse (MCP Inspector)',
       health: '/health',
       openapi: '/.well-known/openapi.yaml'
     },
@@ -1028,20 +1534,105 @@ app.get('/.well-known/openapi.yaml', (req, res) => {
   res.sendFile(openapiPath);
 });
 
+// SSE connections storage for /sse endpoint
+const sseConnectionsMain = new Map();
+
 app.get('/sse', (req, res) => {
+  const sessionId = req.query.sessionId || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.flushHeaders();
-  res.write(':ok\n\n');
+
+  // Store the connection
+  sseConnectionsMain.set(sessionId, res);
+
+  // Send the endpoint event that MCP clients expect (Goose, Claude Desktop, etc.)
+  // This tells the client where to POST JSON-RPC messages
+  const endpoint = `/sse/message?sessionId=${sessionId}`;
+  res.write(`event: endpoint\ndata: ${endpoint}\n\n`);
+
+  // Keep-alive ping
   const ping = setInterval(() => res.write(':ping\n\n'), 15000);
-  req.on('close', () => clearInterval(ping));
+
+  req.on('close', () => {
+    clearInterval(ping);
+    sseConnectionsMain.delete(sessionId);
+  });
 });
 
+app.post('/sse/message', (req, res) => {
+  const sessionId = req.query.sessionId;
+  const { jsonrpc, id, method, params } = req.body;
+
+  const result = handleMethod(method, params);
+  const response = { jsonrpc: '2.0', id, result };
+
+  // Send response back via SSE if connection exists
+  const sseRes = sseConnectionsMain.get(sessionId);
+  if (sseRes) {
+    sseRes.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+  }
+
+  // Also return as HTTP response for compatibility
+  res.json(response);
+});
+
+// Legacy POST /sse for backwards compatibility
 app.post('/sse', (req, res) => {
   const { jsonrpc, id, method, params } = req.body;
   const result = handleMethod(method, params);
   res.json({ jsonrpc: '2.0', id, result });
+});
+
+// MCP Inspector compatible SSE endpoint
+// Stores active SSE connections by session ID
+const sseConnections = new Map();
+
+app.get('/mcp-sse', (req, res) => {
+  const sessionId = req.query.sessionId || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders();
+
+  // Store the connection
+  sseConnections.set(sessionId, res);
+
+  // Send the endpoint event that MCP Inspector expects
+  const endpoint = `/mcp-sse/message?sessionId=${sessionId}`;
+  res.write(`event: endpoint\ndata: ${endpoint}\n\n`);
+
+  // Keep-alive ping
+  const ping = setInterval(() => {
+    res.write(':ping\n\n');
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(ping);
+    sseConnections.delete(sessionId);
+  });
+});
+
+app.post('/mcp-sse/message', (req, res) => {
+  const sessionId = req.query.sessionId;
+  const { jsonrpc, id, method, params } = req.body;
+
+  const result = handleMethod(method, params);
+  const response = { jsonrpc: '2.0', id, result };
+
+  // Send response back via SSE if connection exists
+  const sseRes = sseConnections.get(sessionId);
+  if (sseRes) {
+    sseRes.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+  }
+
+  // Also return as HTTP response
+  res.json(response);
 });
 
 // MCP endpoint (alias for /sse POST) - for Fractal compatibility
@@ -1059,7 +1650,14 @@ app.get('/api/search', (req, res) => {
   const regulation = (req.query.regulation || '').toUpperCase();
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
-  const searchTerms = query.toLowerCase().split(/\s+and\s+/).map(t => t.trim()).filter(t => t);
+  // Expand abbreviations in search terms
+  const searchTerms = query.toLowerCase().split(/\s+and\s+/)
+    .map(t => t.trim())
+    .filter(t => t)
+    .map(t => {
+      const expanded = expandPokemonName(t);
+      return expanded !== t ? expanded.toLowerCase() : t;
+    });
 
   let results = teams;
 
@@ -1085,7 +1683,8 @@ app.get('/api/search', (req, res) => {
 });
 
 app.get('/api/random', (req, res) => {
-  const pokemon = req.query.pokemon;
+  const pokemonRaw = req.query.pokemon;
+  const pokemon = pokemonRaw ? expandPokemonName(pokemonRaw) : null;
   const regulation = (req.query.regulation || '').toUpperCase();
   let pool = teams;
 
@@ -1142,7 +1741,8 @@ app.get('/api/usage', (req, res) => {
 
 app.get('/api/rentals', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-  const pokemon = req.query.pokemon;
+  const pokemonRaw = req.query.pokemon;
+  const pokemon = pokemonRaw ? expandPokemonName(pokemonRaw) : null;
   const regulation = (req.query.regulation || '').toUpperCase();
 
   let results = teams.filter(t => t.rentalCode && t.rentalCode !== 'None' && t.rentalCode.length > 0);
@@ -1175,7 +1775,8 @@ app.get('/api/regulations', (req, res) => {
 });
 
 app.get('/api/teammates/:pokemon', (req, res) => {
-  const pokemon = req.params.pokemon;
+  const pokemonRaw = req.params.pokemon;
+  const pokemon = expandPokemonName(pokemonRaw);
   const limit = Math.min(parseInt(req.query.limit) || 10, 20);
 
   const pokemonNorm = normalize(pokemon);
@@ -1206,7 +1807,8 @@ app.get('/api/teammates/:pokemon', (req, res) => {
 });
 
 app.get('/api/items/:pokemon', (req, res) => {
-  const pokemon = req.params.pokemon;
+  const pokemonRaw = req.params.pokemon;
+  const pokemon = expandPokemonName(pokemonRaw);
 
   const pokemonNorm = normalize(pokemon);
   const items = {};
@@ -1249,6 +1851,104 @@ app.get('/api/player/:name', (req, res) => {
   }
 
   res.json({ total: results.length, teams: results });
+});
+
+// Recommend teams based on playstyle/preferences
+app.get('/api/recommend', (req, res) => {
+  const userDesc = (req.query.description || req.query.q || '').toLowerCase();
+  const regulation = (req.query.regulation || '').toUpperCase();
+  const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+
+  if (!userDesc) {
+    return res.status(400).json({ error: 'Please provide a description of your playstyle or Pokemon preferences' });
+  }
+
+  // Extract Pokemon mentions from user description
+  const mentionedPokemon = new Set();
+  for (const [abbrev, fullName] of Object.entries(POKEMON_ABBREVIATIONS)) {
+    const regex = new RegExp(`\\b${abbrev.replace(/[-\s]/g, '[-\\s]?')}\\b`, 'i');
+    if (regex.test(userDesc)) {
+      mentionedPokemon.add(fullName);
+    }
+  }
+  for (const pokemonList of Object.values(ARCHETYPE_POKEMON)) {
+    for (const pokemon of pokemonList) {
+      if (userDesc.includes(pokemon.toLowerCase())) {
+        mentionedPokemon.add(pokemon);
+      }
+    }
+  }
+
+  // Detect playstyle keywords
+  const detectedArchetypes = new Set();
+  for (const [archetype, keywords] of Object.entries(PLAYSTYLE_KEYWORDS)) {
+    if (keywords.some(kw => userDesc.includes(kw.toLowerCase()))) {
+      detectedArchetypes.add(archetype);
+    }
+  }
+  for (const pokemon of mentionedPokemon) {
+    for (const [archetype, pokemonList] of Object.entries(ARCHETYPE_POKEMON)) {
+      if (pokemonList.includes(pokemon)) {
+        detectedArchetypes.add(archetype);
+      }
+    }
+  }
+
+  const mentionedArray = [...mentionedPokemon];
+  const archetypeArray = [...detectedArchetypes];
+
+  let pool = teams;
+  if (regulation) {
+    pool = pool.filter(t => t.regulation === regulation);
+  }
+
+  // Score teams
+  const scoredTeams = pool.map(team => {
+    let score = 0;
+    const matchReasons = [];
+    const teamPokemonNames = team.pokemon.map(p => p.name);
+    const teamDescLower = team.description.toLowerCase();
+
+    for (const pokemon of mentionedArray) {
+      const pokemonNorm = normalize(pokemon);
+      if (teamPokemonNames.some(p => normalize(p).includes(pokemonNorm))) {
+        score += 10;
+        matchReasons.push(`Has ${pokemon}`);
+      }
+    }
+    for (const archetype of archetypeArray) {
+      if (teamDescLower.includes(archetype)) {
+        score += 5;
+        matchReasons.push(`${archetype} team`);
+      }
+      const archetypePokemon = ARCHETYPE_POKEMON[archetype] || [];
+      for (const pokemon of archetypePokemon) {
+        if (teamPokemonNames.some(p => normalize(p).includes(normalize(pokemon)))) {
+          score += 3;
+          if (!matchReasons.some(r => r.includes(pokemon))) {
+            matchReasons.push(`Has ${pokemon}`);
+          }
+        }
+      }
+    }
+    if (team.rentalCode && team.rentalCode !== 'None' && team.rentalCode.length > 0) {
+      score += 2;
+    }
+
+    return { ...team, score, matchReasons };
+  });
+
+  const results = scoredTeams
+    .filter(t => t.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  res.json({
+    total: results.length,
+    archetypes: archetypeArray,
+    pokemon: mentionedArray,
+    teams: results
+  });
 });
 
 app.listen(process.env.PORT || 3000, () => {

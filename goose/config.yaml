@@ -1,9 +1,11 @@
 # Goose Extension Configuration
 # Add this to your ~/.config/goose/config.yaml under extensions:
 
-vgc-team-finder:
-  name: VGC Team Finder
-  type: sse
-  uri: https://vgc-team-gpt.onrender.com/sse
-  enabled: true
-  description: Search 6000+ Pokemon VGC teams with animated sprites
+extensions:
+  vgc-team-finder:
+    name: VGC Team Finder
+    type: sse
+    uri: https://vgc-team-gpt.onrender.com/sse
+    enabled: true
+    timeout: 300
+    description: Search 6000+ Pokemon VGC teams with animated sprites

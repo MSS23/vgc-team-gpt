@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Server Test</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      padding: 20px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 { color: #ff4444; }
+    .section {
+      background: #1a1a1a;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      border: 1px solid #333;
+    }
+    h2 { color: #44aaff; margin-top: 0; }
+    input, select, button {
+      padding: 10px 15px;
+      border-radius: 8px;
+      border: 1px solid #444;
+      background: #222;
+      color: #fff;
+      font-size: 14px;
+      margin: 5px;
+    }
+    button {
+      background: #ff4444;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover { background: #ff6666; }
+    button:disabled { background: #666; cursor: not-allowed; }
+    .result {
+      background: #111;
+      border-radius: 8px;
+      padding: 15px;
+      margin-top: 15px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 13px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .success { border-left: 4px solid #44ff44; }
+    .error { border-left: 4px solid #ff4444; }
+    .info { border-left: 4px solid #44aaff; }
+    .status {
+      display: inline-block;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    .status.online { background: #44ff44; color: #000; }
+    .status.offline { background: #ff4444; color: #fff; }
+    .status.loading { background: #ffaa44; color: #000; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; }
+    .tool-btn {
+      background: #333;
+      padding: 15px;
+      border-radius: 8px;
+      cursor: pointer;
+      text-align: center;
+      border: 1px solid #444;
+      transition: all 0.2s;
+    }
+    .tool-btn:hover { background: #444; border-color: #ff4444; }
+    .tool-btn h4 { margin: 0 0 5px 0; color: #ff4444; }
+    .tool-btn p { margin: 0; font-size: 12px; color: #888; }
+    #html-preview {
+      background: #000;
+      border-radius: 8px;
+      padding: 0;
+      margin-top: 15px;
+      overflow: hidden;
+    }
+    #html-preview iframe {
+      width: 100%;
+      height: 600px;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎮 VGC Team Finder MCP Test</h1>
+
+  <div class="section">
+    <h2>Server Status</h2>
+    <p>Server URL: <input type="text" id="server-url" value="https://vgc-team-gpt.onrender.com" style="width: 400px;"></p>
+    <button onclick="checkHealth()">Check Health</button>
+    <span id="status" class="status offline">Checking...</span>
+    <div id="health-result" class="result info" style="display: none;"></div>
+  </div>
+
+  <div class="section">
+    <h2>MCP Tools Test</h2>
+    <p>Click a tool to test it via the MCP JSON-RPC endpoint:</p>
+    <div class="grid" id="tools-grid">
+      <div class="tool-btn" onclick="testTool('get_regulations', {})">
+        <h4>📋 get_regulations</h4>
+        <p>List available regulations</p>
+      </div>
+      <div class="tool-btn" onclick="testTool('get_pokemon_usage', {limit: 10})">
+        <h4>📊 get_pokemon_usage</h4>
+        <p>Top 10 Pokemon usage</p>
+      </div>
+      <div class="tool-btn" onclick="testTool('random_team', {})">
+        <h4>🎲 random_team</h4>
+        <p>Get a random team</p>
+      </div>
+      <div class="tool-btn" onclick="testTool('search_teams', {query: 'Incineroar and Flutter Mane', limit: 5})">
+        <h4>🔍 search_teams</h4>
+        <p>Incineroar + Flutter Mane</p>
+      </div>
+      <div class="tool-btn" onclick="testTool('get_rental_teams', {limit: 5})">
+        <h4>🎮 get_rental_teams</h4>
+        <p>Teams with rental codes</p>
+      </div>
+      <div class="tool-btn" onclick="testTool('get_pokemon_teammates', {pokemon: 'Incineroar', limit: 5})">
+        <h4>🤝 get_pokemon_teammates</h4>
+        <p>Incineroar teammates</p>
+      </div>
+      <div class="tool-btn" onclick="testTool('get_pokemon_items', {pokemon: 'Flutter Mane'})">
+        <h4>🎒 get_pokemon_items</h4>
+        <p>Flutter Mane items</p>
+      </div>
+      <div class="tool-btn" onclick="testTool('get_tournament_teams', {event: 'Worlds', limit: 5})">
+        <h4>🏆 get_tournament_teams</h4>
+        <p>Worlds teams</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Custom Tool Call</h2>
+    <select id="tool-select" onchange="updateParams()">
+      <option value="">-- Select Tool --</option>
+    </select>
+    <input type="text" id="params" placeholder='{"query": "Incineroar"}' style="width: 400px;">
+    <button onclick="testCustom()">Execute</button>
+  </div>
+
+  <div class="section">
+    <h2>Result (JSON-RPC Response)</h2>
+    <div id="result" class="result info">Click a tool above to test...</div>
+  </div>
+
+  <div class="section">
+    <h2>MCP-UI Preview (HTML Resource)</h2>
+    <p>The HTML response from MCP-UI tools will be rendered below:</p>
+    <div id="html-preview">
+      <iframe id="preview-frame"></iframe>
+    </div>
+  </div>
+
+  <script>
+    const serverUrl = () => document.getElementById('server-url').value;
+    let toolsList = [];
+
+    async function checkHealth() {
+      const status = document.getElementById('status');
+      const result = document.getElementById('health-result');
+      status.className = 'status loading';
+      status.textContent = 'Checking...';
+
+      try {
+        const res = await fetch(`${serverUrl()}/health`);
+        const data = await res.json();
+        status.className = 'status online';
+        status.textContent = `Online - ${data.teamsLoaded} teams`;
+        result.style.display = 'block';
+        result.className = 'result success';
+        result.textContent = JSON.stringify(data, null, 2);
+
+        // Also fetch tools list
+        await fetchTools();
+      } catch (e) {
+        status.className = 'status offline';
+        status.textContent = 'Offline';
+        result.style.display = 'block';
+        result.className = 'result error';
+        result.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function fetchTools() {
+      try {
+        const res = await fetch(`${serverUrl()}/sse`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/list',
+            params: {}
+          })
+        });
+        const data = await res.json();
+        toolsList = data.result?.tools || [];
+
+        const select = document.getElementById('tool-select');
+        select.innerHTML = '<option value="">-- Select Tool --</option>';
+        toolsList.forEach(tool => {
+          const opt = document.createElement('option');
+          opt.value = tool.name;
+          opt.textContent = tool.name;
+          select.appendChild(opt);
+        });
+      } catch (e) {
+        console.error('Failed to fetch tools:', e);
+      }
+    }
+
+    function updateParams() {
+      const toolName = document.getElementById('tool-select').value;
+      const tool = toolsList.find(t => t.name === toolName);
+      if (tool) {
+        const example = {};
+        const props = tool.inputSchema?.properties || {};
+        Object.keys(props).forEach(key => {
+          if (tool.inputSchema.required?.includes(key)) {
+            example[key] = props[key].type === 'integer' ? 10 : 'example';
+          }
+        });
+        document.getElementById('params').value = JSON.stringify(example);
+      }
+    }
+
+    async function testTool(name, args) {
+      const result = document.getElementById('result');
+      const preview = document.getElementById('preview-frame');
+      result.className = 'result info';
+      result.textContent = 'Loading...';
+
+      try {
+        const res = await fetch(`${serverUrl()}/sse`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: Date.now(),
+            method: 'tools/call',
+            params: { name, arguments: args }
+          })
+        });
+
+        const data = await res.json();
+        result.className = 'result success';
+
+        // Show JSON response (truncated if very long)
+        const jsonStr = JSON.stringify(data, null, 2);
+        result.textContent = jsonStr.length > 5000
+          ? jsonStr.substring(0, 5000) + '\n\n... (truncated)'
+          : jsonStr;
+
+        // Extract HTML resource and show in preview
+        const content = data.result?.content || [];
+        const htmlResource = content.find(c => c.type === 'resource' && c.resource?.mimeType === 'text/html');
+        if (htmlResource) {
+          preview.srcdoc = htmlResource.resource.text;
+        }
+
+      } catch (e) {
+        result.className = 'result error';
+        result.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function testCustom() {
+      const toolName = document.getElementById('tool-select').value;
+      const params = document.getElementById('params').value;
+
+      if (!toolName) {
+        alert('Please select a tool');
+        return;
+      }
+
+      try {
+        const args = params ? JSON.parse(params) : {};
+        await testTool(toolName, args);
+      } catch (e) {
+        alert('Invalid JSON in params: ' + e.message);
+      }
+    }
+
+    // Check health on load
+    checkHealth();
+  </script>
+</body>
+</html>
