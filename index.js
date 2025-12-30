@@ -505,27 +505,33 @@ async function fetchPokepaste(url) {
 
     const html = await response.text();
 
-    // Extract the raw paste text from the HTML
-    // Pokepaste has <pre> tags with the team data
-    const preMatch = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
-    if (!preMatch) return null;
+    // Pokepaste has multiple <article><pre> blocks, one for each Pokemon
+    // Extract ALL <pre> tags and combine them
+    const preMatches = html.matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/gi);
+    const allPreContent = [];
+    for (const match of preMatches) {
+      allPreContent.push(match[1]);
+    }
 
-    // Decode HTML entities and clean up
-    let rawText = preMatch[1]
-      .replace(/<[^>]+>/g, '') // Remove any HTML tags
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&nbsp;/g, ' ');
+    if (allPreContent.length === 0) return null;
 
-    // Parse each Pokemon block (separated by double newlines)
-    const pokemonBlocks = rawText.split(/\n\s*\n/).filter(block => block.trim());
     const parsedPokemon = [];
 
-    for (const block of pokemonBlocks) {
-      const lines = block.trim().split('\n').map(l => l.trim()).filter(l => l);
+    for (const preContent of allPreContent) {
+      // Decode HTML entities and clean up
+      let rawText = preContent
+        .replace(/<[^>]+>/g, '') // Remove any HTML tags (like <span>)
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ')
+        .trim();
+
+      if (!rawText) continue;
+
+      const lines = rawText.split('\n').map(l => l.trim()).filter(l => l);
       if (lines.length < 2) continue;
 
       // First line: Name (Nickname) @ Item  OR  Name @ Item
@@ -534,9 +540,11 @@ async function fetchPokepaste(url) {
       const item = itemMatch ? itemMatch[1].trim() : '';
 
       // Name could be "Pokemon (Nickname)" or just "Pokemon"
-      const nameMatch = firstLine.replace(/@.*$/, '').trim();
+      let nameMatch = firstLine.replace(/@.*$/, '').trim();
       let name = nameMatch;
       let nickname = '';
+
+      // Handle "Nickname (Species)" or "Species (Gender)" patterns
       const nickMatch = nameMatch.match(/^(.+?)\s*\(([^)]+)\)$/);
       if (nickMatch) {
         // Could be "Nickname (Species)" or "Species (Gender)"
@@ -570,17 +578,19 @@ async function fetchPokepaste(url) {
         }
       }
 
-      parsedPokemon.push({
-        name: name.trim(),
-        nickname: nickname || undefined,
-        item,
-        ability,
-        teraType,
-        evs,
-        nature,
-        moves,
-        sprite: getSpriteUrl(name.trim())
-      });
+      if (name) {
+        parsedPokemon.push({
+          name: name.trim(),
+          nickname: nickname || undefined,
+          item,
+          ability,
+          teraType,
+          evs,
+          nature,
+          moves,
+          sprite: getSpriteUrl(name.trim())
+        });
+      }
     }
 
     return parsedPokemon.length > 0 ? parsedPokemon : null;
