@@ -230,6 +230,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TeamSearchResponse'
+  /api/recommend:
+    get:
+      operationId: recommendTeams
+      summary: Get team recommendations based on playstyle
+      description: |
+        Describe your playstyle preferences or Pokemon you enjoy, and get matching team recommendations.
+        Examples: "I like hyper offense", "trick room teams", "teams with Entei and Ogerpon"
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Describe your playstyle (e.g., "hyper offense", "rain teams") or Pokemon you enjoy
+          example: "I like hyper offense"
+        - name: regulation
+          in: query
+          schema:
+            type: string
+            enum: [J, I, H, G, F, E, D, C]
+          description: Filter by regulation
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 50
+          description: Number of recommendations
+      responses:
+        '200':
+          description: Team recommendations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendResponse'
 components:
   schemas:
     Pokemon:
@@ -350,3 +385,23 @@ components:
                 type: integer
               percentage:
                 type: string
+    RecommendResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Number of matching teams
+        archetypes:
+          type: array
+          items:
+            type: string
+          description: Detected playstyle archetypes from the query
+        pokemon:
+          type: array
+          items:
+            type: string
+          description: Pokemon mentioned in the query
+        teams:
+          type: array
+          items:
+            $ref: '#/components/schemas/Team'
