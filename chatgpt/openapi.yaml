@@ -16,6 +16,7 @@ paths:
         Search for teams by Pokemon, player name, event, or item.
         Use "and" to combine multiple Pokemon (e.g., "Incineroar and Flutter Mane").
         Filter by regulation to find teams from a specific format.
+        The current competitive VGC format is Regulation F - use this by default.
       parameters:
         - name: query
           in: query
@@ -29,7 +30,13 @@ paths:
           schema:
             type: string
             enum: [J, I, H, G, F, E, D, C]
-          description: Filter by regulation (J is current, C is oldest)
+          description: Filter by regulation (F is current VGC, J is Battle Stadium)
+        - name: placement
+          in: query
+          schema:
+            type: string
+            enum: [1st, top4, top8, top16, top32]
+          description: Filter by tournament placement (1st=winners only, top4=1st-4th, etc.)
         - name: limit
           in: query
           schema:
