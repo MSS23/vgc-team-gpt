@@ -602,6 +602,20 @@ async function fetchPokepaste(url) {
 
 let teams = [];
 
+// Pokepaste cache for aggregated statistics
+// Key: pokepaste URL, Value: parsed Pokemon data
+const pokepasteCache = new Map();
+
+// Aggregated stats cache (refreshed when Pokepastes are fetched)
+let statsCache = {
+  lastUpdated: 0,
+  moves: {},      // { pokemon: { move: count } }
+  spreads: {},    // { pokemon: { "nature|evs": count } }
+  tera: {},       // { pokemon: { teraType: count } }
+  abilities: {},  // { pokemon: { ability: count } }
+  sampleSize: {}  // { pokemon: count } - how many teams we have data for
+};
+
 // VGCPastes public repository - multiple regulation sheets
 const SPREADSHEET_ID = '1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw';
 const REGULATIONS = [
@@ -1083,6 +1097,114 @@ const TOOLS = [
         }
       },
       required: ['target']
+    }
+  },
+  {
+    name: 'get_move_usage',
+    description: 'Show the most common moves used on a Pokemon based on tournament teams. Use when users ask "what moves does X run" or "what moveset for Y".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pokemon: {
+          type: 'string',
+          description: 'Pokemon name (e.g., "Incineroar", "Flutter Mane")'
+        },
+        regulation: {
+          type: 'string',
+          description: 'Filter by regulation (defaults to F - current VGC format)'
+        },
+        limit: {
+          type: 'integer',
+          description: 'Number of moves to show (default 10)',
+          minimum: 4,
+          maximum: 20
+        }
+      },
+      required: ['pokemon']
+    }
+  },
+  {
+    name: 'get_common_spreads',
+    description: 'Show the most common EV spreads and natures for a Pokemon. Use when users ask "what EV spread for X" or "how should I build Y".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pokemon: {
+          type: 'string',
+          description: 'Pokemon name (e.g., "Incineroar", "Flutter Mane")'
+        },
+        regulation: {
+          type: 'string',
+          description: 'Filter by regulation (defaults to F)'
+        },
+        limit: {
+          type: 'integer',
+          description: 'Number of spreads to show (default 5)',
+          minimum: 3,
+          maximum: 10
+        }
+      },
+      required: ['pokemon']
+    }
+  },
+  {
+    name: 'get_tera_usage',
+    description: 'Show the most common Tera types used on a Pokemon. Use when users ask "what Tera for X" or "what Tera type should I use".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pokemon: {
+          type: 'string',
+          description: 'Pokemon name (e.g., "Incineroar", "Flutter Mane")'
+        },
+        regulation: {
+          type: 'string',
+          description: 'Filter by regulation (defaults to F)'
+        }
+      },
+      required: ['pokemon']
+    }
+  },
+  {
+    name: 'get_common_leads',
+    description: 'Show the most common lead combinations in tournament teams. Use when users ask "what are common leads" or "what do people lead with X".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pokemon: {
+          type: 'string',
+          description: 'Optional: Show leads that include this Pokemon'
+        },
+        regulation: {
+          type: 'string',
+          description: 'Filter by regulation (defaults to F)'
+        },
+        limit: {
+          type: 'integer',
+          description: 'Number of lead pairs to show (default 10)',
+          minimum: 5,
+          maximum: 20
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_ability_usage',
+    description: 'Show ability usage distribution for a Pokemon. Useful for Pokemon with multiple viable abilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pokemon: {
+          type: 'string',
+          description: 'Pokemon name (e.g., "Incineroar", "Urshifu")'
+        },
+        regulation: {
+          type: 'string',
+          description: 'Filter by regulation (defaults to F)'
+        }
+      },
+      required: ['pokemon']
     }
   }
 ];
@@ -2675,6 +2797,472 @@ async function handleMethod(method, params) {
     }
   }
 
+  // Tool: get_move_usage
+  if (method === 'tools/call' && params?.name === 'get_move_usage') {
+    const pokemonRaw = params.arguments?.pokemon || '';
+    const pokemon = expandPokemonName(pokemonRaw);
+    const regulation = (params.arguments?.regulation || 'F').toUpperCase();
+    const limit = Math.min(params.arguments?.limit || 10, 20);
+
+    const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
+    const pokemonNorm = normalize(pokemon);
+
+    console.log(`[get_move_usage] Pokemon: ${pokemon}, Regulation: ${regulation}`);
+
+    // Find teams with this Pokemon in the specified regulation
+    const regTeams = teams.filter(t => t.regulation === regulation);
+    const matchingTeams = regTeams.filter(team =>
+      team.pokemon.some(p => normalize(p.name).includes(pokemonNorm) || pokemonNorm.includes(normalize(p.name)))
+    );
+
+    if (matchingTeams.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No teams found with ${pokemon} in Regulation ${regulation}.`
+        }]
+      };
+    }
+
+    // Fetch Pokepaste data for these teams (sample up to 50 for performance)
+    const teamsToFetch = matchingTeams.slice(0, 50);
+    const moveCounts = {};
+    let sampledCount = 0;
+
+    for (const team of teamsToFetch) {
+      if (!team.pokepaste || !team.pokepaste.includes('pokepast.es')) continue;
+
+      // Check cache first
+      let pokemonData = pokepasteCache.get(team.pokepaste);
+      if (!pokemonData) {
+        pokemonData = await fetchPokepaste(team.pokepaste);
+        if (pokemonData) {
+          pokepasteCache.set(team.pokepaste, pokemonData);
+        }
+      }
+
+      if (pokemonData) {
+        // Find the target Pokemon in this team
+        const targetPokemon = pokemonData.find(p =>
+          normalize(p.name).includes(pokemonNorm) || pokemonNorm.includes(normalize(p.name))
+        );
+
+        if (targetPokemon && targetPokemon.moves && targetPokemon.moves.length > 0) {
+          sampledCount++;
+          for (const move of targetPokemon.moves) {
+            moveCounts[move] = (moveCounts[move] || 0) + 1;
+          }
+        }
+      }
+    }
+
+    if (sampledCount === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Could not fetch moveset data for ${pokemon}. Teams exist but Pokepaste data unavailable.`
+        }]
+      };
+    }
+
+    // Sort by usage
+    const sortedMoves = Object.entries(moveCounts)
+      .map(([move, count]) => ({
+        move,
+        count,
+        percentage: ((count / sampledCount) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
+
+    let responseText = `🎯 **Move Usage: ${pokemon}** (Regulation ${regulation})\n`;
+    responseText += `Based on ${sampledCount} teams sampled\n\n`;
+
+    sortedMoves.forEach((m, i) => {
+      const bar = '█'.repeat(Math.round(parseFloat(m.percentage) / 10));
+      responseText += `${i + 1}. **${m.move}** — ${m.percentage}% ${bar}\n`;
+    });
+
+    return {
+      content: [{ type: 'text', text: responseText }],
+      structuredContent: {
+        pokemon,
+        regulation,
+        sampleSize: sampledCount,
+        moves: sortedMoves
+      }
+    };
+  }
+
+  // Tool: get_common_spreads
+  if (method === 'tools/call' && params?.name === 'get_common_spreads') {
+    const pokemonRaw = params.arguments?.pokemon || '';
+    const pokemon = expandPokemonName(pokemonRaw);
+    const regulation = (params.arguments?.regulation || 'F').toUpperCase();
+    const limit = Math.min(params.arguments?.limit || 5, 10);
+
+    const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
+    const pokemonNorm = normalize(pokemon);
+
+    console.log(`[get_common_spreads] Pokemon: ${pokemon}, Regulation: ${regulation}`);
+
+    // Find teams with this Pokemon
+    const regTeams = teams.filter(t => t.regulation === regulation);
+    const matchingTeams = regTeams.filter(team =>
+      team.pokemon.some(p => normalize(p.name).includes(pokemonNorm) || pokemonNorm.includes(normalize(p.name)))
+    );
+
+    if (matchingTeams.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No teams found with ${pokemon} in Regulation ${regulation}.`
+        }]
+      };
+    }
+
+    // Fetch Pokepaste data
+    const teamsToFetch = matchingTeams.slice(0, 50);
+    const spreadCounts = {};
+    let sampledCount = 0;
+
+    for (const team of teamsToFetch) {
+      if (!team.pokepaste || !team.pokepaste.includes('pokepast.es')) continue;
+
+      let pokemonData = pokepasteCache.get(team.pokepaste);
+      if (!pokemonData) {
+        pokemonData = await fetchPokepaste(team.pokepaste);
+        if (pokemonData) {
+          pokepasteCache.set(team.pokepaste, pokemonData);
+        }
+      }
+
+      if (pokemonData) {
+        const targetPokemon = pokemonData.find(p =>
+          normalize(p.name).includes(pokemonNorm) || pokemonNorm.includes(normalize(p.name))
+        );
+
+        if (targetPokemon && targetPokemon.evs && targetPokemon.nature) {
+          sampledCount++;
+          const spreadKey = `${targetPokemon.nature}|${targetPokemon.evs}`;
+          spreadCounts[spreadKey] = (spreadCounts[spreadKey] || 0) + 1;
+        }
+      }
+    }
+
+    if (sampledCount === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Could not fetch EV spread data for ${pokemon}. Teams exist but Pokepaste data unavailable.`
+        }]
+      };
+    }
+
+    // Sort by usage
+    const sortedSpreads = Object.entries(spreadCounts)
+      .map(([key, count]) => {
+        const [nature, evs] = key.split('|');
+        return {
+          nature,
+          evs,
+          count,
+          percentage: ((count / sampledCount) * 100).toFixed(1)
+        };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
+
+    let responseText = `📊 **EV Spreads: ${pokemon}** (Regulation ${regulation})\n`;
+    responseText += `Based on ${sampledCount} teams sampled\n\n`;
+
+    sortedSpreads.forEach((s, i) => {
+      responseText += `**${i + 1}. ${s.nature} Nature** (${s.percentage}%)\n`;
+      responseText += `   EVs: ${s.evs}\n\n`;
+    });
+
+    return {
+      content: [{ type: 'text', text: responseText }],
+      structuredContent: {
+        pokemon,
+        regulation,
+        sampleSize: sampledCount,
+        spreads: sortedSpreads
+      }
+    };
+  }
+
+  // Tool: get_tera_usage
+  if (method === 'tools/call' && params?.name === 'get_tera_usage') {
+    const pokemonRaw = params.arguments?.pokemon || '';
+    const pokemon = expandPokemonName(pokemonRaw);
+    const regulation = (params.arguments?.regulation || 'F').toUpperCase();
+
+    const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
+    const pokemonNorm = normalize(pokemon);
+
+    console.log(`[get_tera_usage] Pokemon: ${pokemon}, Regulation: ${regulation}`);
+
+    // Find teams with this Pokemon
+    const regTeams = teams.filter(t => t.regulation === regulation);
+    const matchingTeams = regTeams.filter(team =>
+      team.pokemon.some(p => normalize(p.name).includes(pokemonNorm) || pokemonNorm.includes(normalize(p.name)))
+    );
+
+    if (matchingTeams.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No teams found with ${pokemon} in Regulation ${regulation}.`
+        }]
+      };
+    }
+
+    // Fetch Pokepaste data
+    const teamsToFetch = matchingTeams.slice(0, 50);
+    const teraCounts = {};
+    let sampledCount = 0;
+
+    for (const team of teamsToFetch) {
+      if (!team.pokepaste || !team.pokepaste.includes('pokepast.es')) continue;
+
+      let pokemonData = pokepasteCache.get(team.pokepaste);
+      if (!pokemonData) {
+        pokemonData = await fetchPokepaste(team.pokepaste);
+        if (pokemonData) {
+          pokepasteCache.set(team.pokepaste, pokemonData);
+        }
+      }
+
+      if (pokemonData) {
+        const targetPokemon = pokemonData.find(p =>
+          normalize(p.name).includes(pokemonNorm) || pokemonNorm.includes(normalize(p.name))
+        );
+
+        if (targetPokemon && targetPokemon.teraType) {
+          sampledCount++;
+          teraCounts[targetPokemon.teraType] = (teraCounts[targetPokemon.teraType] || 0) + 1;
+        }
+      }
+    }
+
+    if (sampledCount === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Could not fetch Tera type data for ${pokemon}. Teams exist but Pokepaste data unavailable.`
+        }]
+      };
+    }
+
+    // Sort by usage
+    const sortedTera = Object.entries(teraCounts)
+      .map(([tera, count]) => ({
+        teraType: tera,
+        count,
+        percentage: ((count / sampledCount) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    let responseText = `✨ **Tera Type Usage: ${pokemon}** (Regulation ${regulation})\n`;
+    responseText += `Based on ${sampledCount} teams sampled\n\n`;
+
+    sortedTera.forEach((t, i) => {
+      const bar = '█'.repeat(Math.round(parseFloat(t.percentage) / 10));
+      responseText += `${i + 1}. **Tera ${t.teraType}** — ${t.percentage}% ${bar}\n`;
+    });
+
+    return {
+      content: [{ type: 'text', text: responseText }],
+      structuredContent: {
+        pokemon,
+        regulation,
+        sampleSize: sampledCount,
+        teraTypes: sortedTera
+      }
+    };
+  }
+
+  // Tool: get_common_leads
+  if (method === 'tools/call' && params?.name === 'get_common_leads') {
+    const pokemonRaw = params.arguments?.pokemon || '';
+    const pokemon = pokemonRaw ? expandPokemonName(pokemonRaw) : null;
+    const regulation = (params.arguments?.regulation || 'F').toUpperCase();
+    const limit = Math.min(params.arguments?.limit || 10, 20);
+
+    const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
+
+    console.log(`[get_common_leads] Pokemon: ${pokemon || 'all'}, Regulation: ${regulation}`);
+
+    // Get teams for this regulation
+    const regTeams = teams.filter(t => t.regulation === regulation);
+
+    if (regTeams.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No teams found in Regulation ${regulation}.`
+        }]
+      };
+    }
+
+    // Count lead pairs (first 2 Pokemon on each team)
+    const leadPairCounts = {};
+
+    for (const team of regTeams) {
+      if (team.pokemon.length < 2) continue;
+
+      // Get first two Pokemon as potential leads
+      const lead1 = team.pokemon[0].name;
+      const lead2 = team.pokemon[1].name;
+
+      // If filtering by Pokemon, check if either lead matches
+      if (pokemon) {
+        const pokemonNorm = normalize(pokemon);
+        const lead1Norm = normalize(lead1);
+        const lead2Norm = normalize(lead2);
+        if (!lead1Norm.includes(pokemonNorm) && !lead2Norm.includes(pokemonNorm) &&
+            !pokemonNorm.includes(lead1Norm) && !pokemonNorm.includes(lead2Norm)) {
+          continue;
+        }
+      }
+
+      // Create sorted pair key for consistent counting
+      const pairKey = [lead1, lead2].sort().join(' + ');
+      leadPairCounts[pairKey] = (leadPairCounts[pairKey] || 0) + 1;
+    }
+
+    // Sort by count
+    const sortedLeads = Object.entries(leadPairCounts)
+      .map(([pair, count]) => ({
+        pair,
+        count,
+        percentage: ((count / regTeams.length) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
+
+    if (sortedLeads.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No lead combinations found${pokemon ? ` with ${pokemon}` : ''} in Regulation ${regulation}.`
+        }]
+      };
+    }
+
+    let responseText = `🎮 **Common Lead Combinations** (Regulation ${regulation})\n`;
+    if (pokemon) {
+      responseText += `Leads including: ${pokemon}\n`;
+    }
+    responseText += `Based on ${regTeams.length} teams\n\n`;
+
+    sortedLeads.forEach((l, i) => {
+      responseText += `${i + 1}. **${l.pair}** — ${l.count} teams (${l.percentage}%)\n`;
+    });
+
+    return {
+      content: [{ type: 'text', text: responseText }],
+      structuredContent: {
+        pokemon: pokemon || null,
+        regulation,
+        totalTeams: regTeams.length,
+        leads: sortedLeads
+      }
+    };
+  }
+
+  // Tool: get_ability_usage
+  if (method === 'tools/call' && params?.name === 'get_ability_usage') {
+    const pokemonRaw = params.arguments?.pokemon || '';
+    const pokemon = expandPokemonName(pokemonRaw);
+    const regulation = (params.arguments?.regulation || 'F').toUpperCase();
+
+    const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
+    const pokemonNorm = normalize(pokemon);
+
+    console.log(`[get_ability_usage] Pokemon: ${pokemon}, Regulation: ${regulation}`);
+
+    // Find teams with this Pokemon
+    const regTeams = teams.filter(t => t.regulation === regulation);
+    const matchingTeams = regTeams.filter(team =>
+      team.pokemon.some(p => normalize(p.name).includes(pokemonNorm) || pokemonNorm.includes(normalize(p.name)))
+    );
+
+    if (matchingTeams.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No teams found with ${pokemon} in Regulation ${regulation}.`
+        }]
+      };
+    }
+
+    // Fetch Pokepaste data
+    const teamsToFetch = matchingTeams.slice(0, 50);
+    const abilityCounts = {};
+    let sampledCount = 0;
+
+    for (const team of teamsToFetch) {
+      if (!team.pokepaste || !team.pokepaste.includes('pokepast.es')) continue;
+
+      let pokemonData = pokepasteCache.get(team.pokepaste);
+      if (!pokemonData) {
+        pokemonData = await fetchPokepaste(team.pokepaste);
+        if (pokemonData) {
+          pokepasteCache.set(team.pokepaste, pokemonData);
+        }
+      }
+
+      if (pokemonData) {
+        const targetPokemon = pokemonData.find(p =>
+          normalize(p.name).includes(pokemonNorm) || pokemonNorm.includes(normalize(p.name))
+        );
+
+        if (targetPokemon && targetPokemon.ability) {
+          sampledCount++;
+          abilityCounts[targetPokemon.ability] = (abilityCounts[targetPokemon.ability] || 0) + 1;
+        }
+      }
+    }
+
+    if (sampledCount === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Could not fetch ability data for ${pokemon}. Teams exist but Pokepaste data unavailable.`
+        }]
+      };
+    }
+
+    // Sort by usage
+    const sortedAbilities = Object.entries(abilityCounts)
+      .map(([ability, count]) => ({
+        ability,
+        count,
+        percentage: ((count / sampledCount) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    let responseText = `⚡ **Ability Usage: ${pokemon}** (Regulation ${regulation})\n`;
+    responseText += `Based on ${sampledCount} teams sampled\n\n`;
+
+    sortedAbilities.forEach((a, i) => {
+      const bar = '█'.repeat(Math.round(parseFloat(a.percentage) / 10));
+      responseText += `${i + 1}. **${a.ability}** — ${a.percentage}% ${bar}\n`;
+    });
+
+    return {
+      content: [{ type: 'text', text: responseText }],
+      structuredContent: {
+        pokemon,
+        regulation,
+        sampleSize: sampledCount,
+        abilities: sortedAbilities
+      }
+    };
+  }
+
   return { error: { code: -32601, message: 'Method not found' } };
 }
 
@@ -3175,6 +3763,286 @@ app.get('/api/recommend', (req, res) => {
     archetypes: archetypeArray,
     pokemon: mentionedArray,
     teams: results
+  });
+});
+
+// ============================================
+// REST API: Usage Statistics Endpoints
+// ============================================
+
+// GET /api/moves/:pokemon - Move usage statistics
+app.get('/api/moves/:pokemon', async (req, res) => {
+  const pokemonName = expandPokemonName(req.params.pokemon);
+  const regulation = (req.query.regulation || 'F').toUpperCase();
+  const limit = Math.min(parseInt(req.query.limit) || 10, 20);
+
+  // Find teams with this Pokemon
+  let pool = teams.filter(t =>
+    t.regulation === regulation &&
+    t.pokemon.some(p => normalize(p.name).includes(normalize(pokemonName)))
+  );
+
+  // Sample up to 50 teams
+  const sampleSize = Math.min(pool.length, 50);
+  const sampledTeams = pool.slice(0, sampleSize);
+
+  const moveCounts = {};
+  let pokemonFound = 0;
+
+  for (const team of sampledTeams) {
+    if (!team.pokepaste) continue;
+
+    try {
+      let pasteData = pokepasteCache.get(team.pokepaste);
+      if (!pasteData) {
+        pasteData = await fetchPokepaste(team.pokepaste);
+        if (pasteData) pokepasteCache.set(team.pokepaste, pasteData);
+      }
+      if (!pasteData) continue;
+
+      const targetPokemon = pasteData.find(p =>
+        normalize(p.name).includes(normalize(pokemonName))
+      );
+      if (targetPokemon && targetPokemon.moves) {
+        pokemonFound++;
+        for (const move of targetPokemon.moves) {
+          moveCounts[move] = (moveCounts[move] || 0) + 1;
+        }
+      }
+    } catch (e) { /* skip on error */ }
+  }
+
+  const moves = Object.entries(moveCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name, count]) => ({
+      name,
+      count,
+      percentage: pokemonFound > 0 ? `${((count / pokemonFound) * 100).toFixed(1)}%` : '0%'
+    }));
+
+  res.json({
+    pokemon: pokemonName,
+    regulation,
+    sampleSize: pokemonFound,
+    moves
+  });
+});
+
+// GET /api/spreads/:pokemon - EV spread statistics
+app.get('/api/spreads/:pokemon', async (req, res) => {
+  const pokemonName = expandPokemonName(req.params.pokemon);
+  const regulation = (req.query.regulation || 'F').toUpperCase();
+  const limit = Math.min(parseInt(req.query.limit) || 5, 10);
+
+  let pool = teams.filter(t =>
+    t.regulation === regulation &&
+    t.pokemon.some(p => normalize(p.name).includes(normalize(pokemonName)))
+  );
+
+  const sampleSize = Math.min(pool.length, 50);
+  const sampledTeams = pool.slice(0, sampleSize);
+
+  const spreadCounts = {};
+  let pokemonFound = 0;
+
+  for (const team of sampledTeams) {
+    if (!team.pokepaste) continue;
+
+    try {
+      let pasteData = pokepasteCache.get(team.pokepaste);
+      if (!pasteData) {
+        pasteData = await fetchPokepaste(team.pokepaste);
+        if (pasteData) pokepasteCache.set(team.pokepaste, pasteData);
+      }
+      if (!pasteData) continue;
+
+      const targetPokemon = pasteData.find(p =>
+        normalize(p.name).includes(normalize(pokemonName))
+      );
+      if (targetPokemon && targetPokemon.evs && targetPokemon.nature) {
+        pokemonFound++;
+        const key = `${targetPokemon.nature}|${targetPokemon.evs}`;
+        spreadCounts[key] = (spreadCounts[key] || 0) + 1;
+      }
+    } catch (e) { /* skip on error */ }
+  }
+
+  const spreads = Object.entries(spreadCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([key, count]) => {
+      const [nature, evs] = key.split('|');
+      return {
+        nature,
+        evs,
+        count,
+        percentage: pokemonFound > 0 ? `${((count / pokemonFound) * 100).toFixed(1)}%` : '0%'
+      };
+    });
+
+  res.json({
+    pokemon: pokemonName,
+    regulation,
+    sampleSize: pokemonFound,
+    spreads
+  });
+});
+
+// GET /api/tera/:pokemon - Tera type statistics
+app.get('/api/tera/:pokemon', async (req, res) => {
+  const pokemonName = expandPokemonName(req.params.pokemon);
+  const regulation = (req.query.regulation || 'F').toUpperCase();
+
+  let pool = teams.filter(t =>
+    t.regulation === regulation &&
+    t.pokemon.some(p => normalize(p.name).includes(normalize(pokemonName)))
+  );
+
+  const sampleSize = Math.min(pool.length, 50);
+  const sampledTeams = pool.slice(0, sampleSize);
+
+  const teraCounts = {};
+  let pokemonFound = 0;
+
+  for (const team of sampledTeams) {
+    if (!team.pokepaste) continue;
+
+    try {
+      let pasteData = pokepasteCache.get(team.pokepaste);
+      if (!pasteData) {
+        pasteData = await fetchPokepaste(team.pokepaste);
+        if (pasteData) pokepasteCache.set(team.pokepaste, pasteData);
+      }
+      if (!pasteData) continue;
+
+      const targetPokemon = pasteData.find(p =>
+        normalize(p.name).includes(normalize(pokemonName))
+      );
+      if (targetPokemon && targetPokemon.teraType) {
+        pokemonFound++;
+        teraCounts[targetPokemon.teraType] = (teraCounts[targetPokemon.teraType] || 0) + 1;
+      }
+    } catch (e) { /* skip on error */ }
+  }
+
+  const teraTypes = Object.entries(teraCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, count]) => ({
+      type,
+      count,
+      percentage: pokemonFound > 0 ? `${((count / pokemonFound) * 100).toFixed(1)}%` : '0%'
+    }));
+
+  res.json({
+    pokemon: pokemonName,
+    regulation,
+    sampleSize: pokemonFound,
+    teraTypes
+  });
+});
+
+// GET /api/leads - Common lead combinations
+app.get('/api/leads', (req, res) => {
+  const filterPokemon = req.query.pokemon ? expandPokemonName(req.query.pokemon) : null;
+  const regulation = (req.query.regulation || 'F').toUpperCase();
+  const limit = Math.min(parseInt(req.query.limit) || 10, 20);
+
+  let pool = teams.filter(t => t.regulation === regulation);
+
+  const leadCounts = {};
+  let totalTeams = 0;
+
+  for (const team of pool) {
+    if (team.pokemon.length < 2) continue;
+
+    const lead1 = team.pokemon[0].name;
+    const lead2 = team.pokemon[1].name;
+
+    if (filterPokemon) {
+      const normFilter = normalize(filterPokemon);
+      if (!normalize(lead1).includes(normFilter) && !normalize(lead2).includes(normFilter)) {
+        continue;
+      }
+    }
+
+    totalTeams++;
+    const [sorted1, sorted2] = [lead1, lead2].sort();
+    const key = `${sorted1}|${sorted2}`;
+    leadCounts[key] = (leadCounts[key] || 0) + 1;
+  }
+
+  const leads = Object.entries(leadCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([key, count]) => {
+      const [pokemon1, pokemon2] = key.split('|');
+      return {
+        pokemon1,
+        pokemon2,
+        count,
+        percentage: totalTeams > 0 ? `${((count / totalTeams) * 100).toFixed(1)}%` : '0%'
+      };
+    });
+
+  res.json({
+    regulation,
+    filterPokemon: filterPokemon || null,
+    totalTeams,
+    leads
+  });
+});
+
+// GET /api/abilities/:pokemon - Ability usage statistics
+app.get('/api/abilities/:pokemon', async (req, res) => {
+  const pokemonName = expandPokemonName(req.params.pokemon);
+  const regulation = (req.query.regulation || 'F').toUpperCase();
+
+  let pool = teams.filter(t =>
+    t.regulation === regulation &&
+    t.pokemon.some(p => normalize(p.name).includes(normalize(pokemonName)))
+  );
+
+  const sampleSize = Math.min(pool.length, 50);
+  const sampledTeams = pool.slice(0, sampleSize);
+
+  const abilityCounts = {};
+  let pokemonFound = 0;
+
+  for (const team of sampledTeams) {
+    if (!team.pokepaste) continue;
+
+    try {
+      let pasteData = pokepasteCache.get(team.pokepaste);
+      if (!pasteData) {
+        pasteData = await fetchPokepaste(team.pokepaste);
+        if (pasteData) pokepasteCache.set(team.pokepaste, pasteData);
+      }
+      if (!pasteData) continue;
+
+      const targetPokemon = pasteData.find(p =>
+        normalize(p.name).includes(normalize(pokemonName))
+      );
+      if (targetPokemon && targetPokemon.ability) {
+        pokemonFound++;
+        abilityCounts[targetPokemon.ability] = (abilityCounts[targetPokemon.ability] || 0) + 1;
+      }
+    } catch (e) { /* skip on error */ }
+  }
+
+  const abilities = Object.entries(abilityCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({
+      name,
+      count,
+      percentage: pokemonFound > 0 ? `${((count / pokemonFound) * 100).toFixed(1)}%` : '0%'
+    }));
+
+  res.json({
+    pokemon: pokemonName,
+    regulation,
+    sampleSize: pokemonFound,
+    abilities
   });
 });
 

@@ -272,6 +272,166 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RecommendResponse'
+  /api/moves/{pokemon}:
+    get:
+      operationId: getMoveUsage
+      summary: Get most common moves for a Pokemon
+      description: |
+        Shows the most common moves used on a Pokemon based on tournament team data.
+        Analyzes Pokepaste data from recent teams to show move usage percentages.
+      parameters:
+        - name: pokemon
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Pokemon name
+          example: "Incineroar"
+        - name: regulation
+          in: query
+          schema:
+            type: string
+            enum: [J, I, H, G, F, E, D, C]
+          description: Filter by regulation (default F)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 20
+          description: Number of moves to show
+      responses:
+        '200':
+          description: Move usage statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoveUsageResponse'
+  /api/spreads/{pokemon}:
+    get:
+      operationId: getCommonSpreads
+      summary: Get most common EV spreads for a Pokemon
+      description: |
+        Shows the most common EV spreads and natures used on a Pokemon.
+        Analyzes Pokepaste data to show popular stat distributions.
+      parameters:
+        - name: pokemon
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Pokemon name
+          example: "Flutter Mane"
+        - name: regulation
+          in: query
+          schema:
+            type: string
+            enum: [J, I, H, G, F, E, D, C]
+          description: Filter by regulation (default F)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 5
+            maximum: 10
+          description: Number of spreads to show
+      responses:
+        '200':
+          description: EV spread statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpreadUsageResponse'
+  /api/tera/{pokemon}:
+    get:
+      operationId: getTeraUsage
+      summary: Get most common Tera types for a Pokemon
+      description: |
+        Shows the most common Tera types used on a Pokemon.
+        Analyzes Pokepaste data to show Tera type distribution.
+      parameters:
+        - name: pokemon
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Pokemon name
+          example: "Raging Bolt"
+        - name: regulation
+          in: query
+          schema:
+            type: string
+            enum: [J, I, H, G, F, E, D, C]
+          description: Filter by regulation (default F)
+      responses:
+        '200':
+          description: Tera type statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeraUsageResponse'
+  /api/leads:
+    get:
+      operationId: getCommonLeads
+      summary: Get common lead combinations
+      description: |
+        Shows the most common lead Pokemon pairs in tournament teams.
+        Based on team slot positions (first two Pokemon listed).
+      parameters:
+        - name: pokemon
+          in: query
+          schema:
+            type: string
+          description: Optional - show leads that include this Pokemon
+          example: "Incineroar"
+        - name: regulation
+          in: query
+          schema:
+            type: string
+            enum: [J, I, H, G, F, E, D, C]
+          description: Filter by regulation (default F)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 20
+          description: Number of lead pairs to show
+      responses:
+        '200':
+          description: Lead combination statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadsResponse'
+  /api/abilities/{pokemon}:
+    get:
+      operationId: getAbilityUsage
+      summary: Get ability usage for a Pokemon
+      description: |
+        Shows the ability distribution for a Pokemon.
+        Useful for Pokemon with multiple viable ability options.
+      parameters:
+        - name: pokemon
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Pokemon name
+          example: "Incineroar"
+        - name: regulation
+          in: query
+          schema:
+            type: string
+            enum: [J, I, H, G, F, E, D, C]
+          description: Filter by regulation (default F)
+      responses:
+        '200':
+          description: Ability usage statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AbilityUsageResponse'
 components:
   schemas:
     Pokemon:
@@ -412,3 +572,139 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Team'
+    MoveUsageResponse:
+      type: object
+      properties:
+        pokemon:
+          type: string
+          description: Pokemon name
+        regulation:
+          type: string
+          description: Regulation filter used
+        sampleSize:
+          type: integer
+          description: Number of teams analyzed
+        moves:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Move name
+              count:
+                type: integer
+                description: Number of occurrences
+              percentage:
+                type: string
+                description: Usage percentage
+    SpreadUsageResponse:
+      type: object
+      properties:
+        pokemon:
+          type: string
+          description: Pokemon name
+        regulation:
+          type: string
+          description: Regulation filter used
+        sampleSize:
+          type: integer
+          description: Number of teams analyzed
+        spreads:
+          type: array
+          items:
+            type: object
+            properties:
+              nature:
+                type: string
+                description: Nature name
+              evs:
+                type: string
+                description: EV spread (HP/Atk/Def/SpA/SpD/Spe)
+              count:
+                type: integer
+                description: Number of occurrences
+              percentage:
+                type: string
+                description: Usage percentage
+    TeraUsageResponse:
+      type: object
+      properties:
+        pokemon:
+          type: string
+          description: Pokemon name
+        regulation:
+          type: string
+          description: Regulation filter used
+        sampleSize:
+          type: integer
+          description: Number of teams analyzed
+        teraTypes:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                description: Tera type name
+              count:
+                type: integer
+                description: Number of occurrences
+              percentage:
+                type: string
+                description: Usage percentage
+    LeadsResponse:
+      type: object
+      properties:
+        regulation:
+          type: string
+          description: Regulation filter used
+        filterPokemon:
+          type: string
+          description: Pokemon filter used (if any)
+        totalTeams:
+          type: integer
+          description: Number of teams analyzed
+        leads:
+          type: array
+          items:
+            type: object
+            properties:
+              pokemon1:
+                type: string
+                description: First lead Pokemon
+              pokemon2:
+                type: string
+                description: Second lead Pokemon
+              count:
+                type: integer
+                description: Number of occurrences
+              percentage:
+                type: string
+                description: Usage percentage
+    AbilityUsageResponse:
+      type: object
+      properties:
+        pokemon:
+          type: string
+          description: Pokemon name
+        regulation:
+          type: string
+          description: Regulation filter used
+        sampleSize:
+          type: integer
+          description: Number of teams analyzed
+        abilities:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Ability name
+              count:
+                type: integer
+                description: Number of occurrences
+              percentage:
+                type: string
+                description: Usage percentage
