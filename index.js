@@ -647,7 +647,7 @@ async function fetchSheetData(regulation) {
   try {
     const res = await fetch(url);
     if (!res.ok) {
-      console.log(`  ⚠️ Could not fetch ${regulation.sheet}: ${res.status}`);
+      console.error(`  ⚠️ Could not fetch ${regulation.sheet}: ${res.status}`);
       return [];
     }
 
@@ -742,37 +742,37 @@ async function fetchSheetData(regulation) {
 
     return sheetTeams;
   } catch (e) {
-    console.log(`  ❌ Error fetching ${regulation.sheet}:`, e.message);
+    console.error(`  ❌ Error fetching ${regulation.sheet}:`, e.message);
     return [];
   }
 }
 
 async function fetchTeams() {
   try {
-    console.log('Fetching teams from VGCPastes repository...');
+    console.error('Fetching teams from VGCPastes repository...');
 
     const allTeams = [];
 
     for (const reg of REGULATIONS) {
-      console.log(`  Fetching ${reg.sheet}...`);
+      console.error(`  Fetching ${reg.sheet}...`);
       const sheetTeams = await fetchSheetData(reg);
-      console.log(`    ✓ Loaded ${sheetTeams.length} teams from ${reg.sheet}`);
+      console.error(`    ✓ Loaded ${sheetTeams.length} teams from ${reg.sheet}`);
       allTeams.push(...sheetTeams);
     }
 
     teams = allTeams;
 
-    console.log(`\n✅ Total: ${teams.length} teams loaded across ${REGULATIONS.length} regulations`);
+    console.error(`\n✅ Total: ${teams.length} teams loaded across ${REGULATIONS.length} regulations`);
 
     // Count by regulation
     const regCounts = {};
     teams.forEach(t => {
       regCounts[t.regulation] = (regCounts[t.regulation] || 0) + 1;
     });
-    console.log('Teams by regulation:', regCounts);
+    console.error('Teams by regulation:', regCounts);
 
     if (teams.length > 0) {
-      console.log('Sample Team:', JSON.stringify(teams[0], null, 2));
+      console.error('Sample Team:', JSON.stringify(teams[0], null, 2));
     }
   } catch (e) {
     console.error('Data fetch error:', e);
@@ -1406,7 +1406,7 @@ async function handleMethod(method, params) {
     const item = expandItemName(itemRaw);
     const limit = Math.min(params.arguments?.limit || 20, 100);
 
-    console.log(`[search_pokemon_with_item] Input: "${pokemonRaw}" + "${itemRaw}" -> Expanded: "${pokemon}" + "${item}"`);
+    console.error(`[search_pokemon_with_item] Input: "${pokemonRaw}" + "${itemRaw}" -> Expanded: "${pokemon}" + "${item}"`);
 
     if (!pokemon || !item) {
       return { content: [{ type: 'text', text: 'Please provide both a Pokemon and an item.' }] };
@@ -1763,9 +1763,9 @@ async function handleMethod(method, params) {
     }
     q = q.trim();
 
-    console.log('Total teams in database:', teams.length);
-    console.log('Search query:', q);
-    console.log('Regulation filter:', regulation || 'all');
+    console.error('Total teams in database:', teams.length);
+    console.error('Search query:', q);
+    console.error('Regulation filter:', regulation || 'all');
 
     // Split by "and" first to get separate Pokemon/terms, then trim
     // Also expand abbreviations (e.g., "KG" -> "Kingambit", "Incin" -> "Incineroar")
@@ -1779,13 +1779,13 @@ async function handleMethod(method, params) {
         return expanded !== t ? expanded : t;
       });
 
-    console.log('Search terms (after abbreviation expansion):', searchTerms);
+    console.error('Search terms (after abbreviation expansion):', searchTerms);
 
     // Start with regulation filter if specified
     let pool = teams;
     if (regulation) {
       pool = teams.filter(t => t.regulation === regulation);
-      console.log(`Filtered to ${pool.length} teams in Regulation ${regulation}`);
+      console.error(`Filtered to ${pool.length} teams in Regulation ${regulation}`);
     }
 
     // Apply placement filter if specified
@@ -1793,7 +1793,7 @@ async function handleMethod(method, params) {
       const placementTiers = { '1st': 1, 'top4': 4, 'top8': 8, 'top16': 16, 'top32': 32 };
       const maxTier = placementTiers[placement] || 999;
       pool = filterByPlacement(pool, maxTier);
-      console.log(`Filtered to ${pool.length} teams with placement ${placement} (tier <= ${maxTier})`);
+      console.error(`Filtered to ${pool.length} teams with placement ${placement} (tier <= ${maxTier})`);
     }
 
     let results = pool.filter(team => {
@@ -1831,7 +1831,7 @@ async function handleMethod(method, params) {
       });
     });
 
-    console.log('Matching teams found:', results.length);
+    console.error('Matching teams found:', results.length);
 
     if (sort === 'oldest') {
       results.sort((a, b) => a.dateValue - b.dateValue);
@@ -1879,7 +1879,7 @@ async function handleMethod(method, params) {
     const regulation = (params.arguments?.regulation || '').toUpperCase();
     const limit = Math.min(params.arguments?.limit || 10, 50);
 
-    console.log(`[recommend_teams] User description: "${userDesc}"`);
+    console.error(`[recommend_teams] User description: "${userDesc}"`);
 
     // Extract Pokemon mentions from user description
     const mentionedPokemon = new Set();
@@ -1922,8 +1922,8 @@ async function handleMethod(method, params) {
     const mentionedArray = [...mentionedPokemon];
     const archetypeArray = [...detectedArchetypes];
 
-    console.log(`[recommend_teams] Detected Pokemon: ${mentionedArray.join(', ')}`);
-    console.log(`[recommend_teams] Detected archetypes: ${archetypeArray.join(', ')}`);
+    console.error(`[recommend_teams] Detected Pokemon: ${mentionedArray.join(', ')}`);
+    console.error(`[recommend_teams] Detected archetypes: ${archetypeArray.join(', ')}`);
 
     // Start with all teams, optionally filter by regulation
     let pool = teams;
@@ -2053,7 +2053,7 @@ async function handleMethod(method, params) {
     const placementTiers = { '1st': 1, 'top4': 4, 'top8': 8, 'top16': 16 };
     const maxTier = placementTiers[placementArg] || 1;
 
-    console.log(`[get_top_teams] placement=${placementArg}, regulation=${regulation}, pokemon=${pokemon}, limit=${limit}`);
+    console.error(`[get_top_teams] placement=${placementArg}, regulation=${regulation}, pokemon=${pokemon}, limit=${limit}`);
 
     // Filter by regulation
     let pool = teams.filter(t => t.regulation === regulation);
@@ -2171,7 +2171,7 @@ async function handleMethod(method, params) {
     }
 
     // Fetch and parse the Pokepaste
-    console.log(`[get_team_moveset] Fetching pokepaste: ${team.pokepaste}`);
+    console.error(`[get_team_moveset] Fetching pokepaste: ${team.pokepaste}`);
     const fullPokemon = await fetchPokepaste(team.pokepaste);
 
     if (!fullPokemon) {
@@ -2257,7 +2257,7 @@ async function handleMethod(method, params) {
       };
     }
 
-    console.log(`[get_similar_teams] Looking for teams similar to: ${targetPokemon.join(', ')}`);
+    console.error(`[get_similar_teams] Looking for teams similar to: ${targetPokemon.join(', ')}`);
 
     // Score all teams by similarity
     let pool = teams;
@@ -2392,7 +2392,7 @@ async function handleMethod(method, params) {
       };
     }
 
-    console.log(`[analyze_team_coverage] Analyzing: ${pokemonNames.join(', ')}`);
+    console.error(`[analyze_team_coverage] Analyzing: ${pokemonNames.join(', ')}`);
 
     // Get types for each Pokemon
     const teamTypes = [];
@@ -2552,7 +2552,7 @@ async function handleMethod(method, params) {
       actualOlderTeams = sortedByDate.slice(splitPoint);
     }
 
-    console.log(`[get_trending] Reg ${regulation}: ${actualRecentTeams.length} recent, ${actualOlderTeams.length} older teams`);
+    console.error(`[get_trending] Reg ${regulation}: ${actualRecentTeams.length} recent, ${actualOlderTeams.length} older teams`);
 
     // Calculate usage percentages for recent and older
     const countPokemon = (teamsList) => {
@@ -2647,7 +2647,7 @@ async function handleMethod(method, params) {
     const target = expandPokemonName(targetRaw);
     const targetNorm = normalize(target);
 
-    console.log(`[get_counters] Finding counters for: ${target} (${targetNorm})`);
+    console.error(`[get_counters] Finding counters for: ${target} (${targetNorm})`);
 
     // Check if it's a specific Pokemon
     const targetTypes = POKEMON_TYPES[target];
@@ -2664,7 +2664,7 @@ async function handleMethod(method, params) {
         }
       }
 
-      console.log(`[get_counters] ${target} is weak to: ${[...weakTo].join(', ')}`);
+      console.error(`[get_counters] ${target} is weak to: ${[...weakTo].join(', ')}`);
 
       // Find Pokemon with these types that are popular
       const regTeams = teams.filter(t => t.regulation === regulation);
@@ -2807,7 +2807,7 @@ async function handleMethod(method, params) {
     const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
     const pokemonNorm = normalize(pokemon);
 
-    console.log(`[get_move_usage] Pokemon: ${pokemon}, Regulation: ${regulation}`);
+    console.error(`[get_move_usage] Pokemon: ${pokemon}, Regulation: ${regulation}`);
 
     // Find teams with this Pokemon in the specified regulation
     const regTeams = teams.filter(t => t.regulation === regulation);
@@ -2904,7 +2904,7 @@ async function handleMethod(method, params) {
     const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
     const pokemonNorm = normalize(pokemon);
 
-    console.log(`[get_common_spreads] Pokemon: ${pokemon}, Regulation: ${regulation}`);
+    console.error(`[get_common_spreads] Pokemon: ${pokemon}, Regulation: ${regulation}`);
 
     // Find teams with this Pokemon
     const regTeams = teams.filter(t => t.regulation === regulation);
@@ -3001,7 +3001,7 @@ async function handleMethod(method, params) {
     const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
     const pokemonNorm = normalize(pokemon);
 
-    console.log(`[get_tera_usage] Pokemon: ${pokemon}, Regulation: ${regulation}`);
+    console.error(`[get_tera_usage] Pokemon: ${pokemon}, Regulation: ${regulation}`);
 
     // Find teams with this Pokemon
     const regTeams = teams.filter(t => t.regulation === regulation);
@@ -3092,7 +3092,7 @@ async function handleMethod(method, params) {
 
     const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
 
-    console.log(`[get_common_leads] Pokemon: ${pokemon || 'all'}, Regulation: ${regulation}`);
+    console.error(`[get_common_leads] Pokemon: ${pokemon || 'all'}, Regulation: ${regulation}`);
 
     // Get teams for this regulation
     const regTeams = teams.filter(t => t.regulation === regulation);
@@ -3181,7 +3181,7 @@ async function handleMethod(method, params) {
     const normalize = (str) => str.toLowerCase().replace(/[-\s]/g, '');
     const pokemonNorm = normalize(pokemon);
 
-    console.log(`[get_ability_usage] Pokemon: ${pokemon}, Regulation: ${regulation}`);
+    console.error(`[get_ability_usage] Pokemon: ${pokemon}, Regulation: ${regulation}`);
 
     // Find teams with this Pokemon
     const regTeams = teams.filter(t => t.regulation === regulation);
@@ -4047,6 +4047,6 @@ app.get('/api/abilities/:pokemon', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log('Server running on port', process.env.PORT || 3000);
-  console.log('Tools available:', TOOLS.map(t => t.name).join(', '));
+  console.error('Server running on port', process.env.PORT || 3000);
+  console.error('Tools available:', TOOLS.map(t => t.name).join(', '));
 });
